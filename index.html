@@ -1,0 +1,143 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#fb4513">
+<title>Inspeções SESMT</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600;700;800&display=swap">
+<style>
+/* ============================================================
+   Mesma identidade do painel: branco com laranja Teccel.
+   Aqui o alvo é o celular em campo, então tudo é maior:
+   alvo de toque de 44px para cima e texto que se lê no sol.
+   ============================================================ */
+:root{
+  --fundo:#ffffff; --painel:#ffffff; --painel-alt:#fbf8f4;
+  --linha-borda:#e6e0d8; --sombra:0 1px 3px rgba(60,44,28,.08);
+  --txt:#241f1a; --txt2:#7b7168; --txt3:#a49a90;
+  --acento:#fb4513; --acento-forte:#c8300a; --acento-suave:#fdeee9;
+  --ruim:#c62828; --medio:#ef8f00; --bom:#2e7d32;
+  --topo:56px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;min-height:100%;background:var(--fundo);color:var(--txt);
+  font-family:"Open Sans","Segoe UI",system-ui,-apple-system,sans-serif;
+  font-size:15px;-webkit-text-size-adjust:100%}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+.oculto{display:none !important}
+
+/* ---- estrutura ---- */
+#topo{position:sticky;top:0;z-index:20;height:var(--topo);display:flex;align-items:center;
+  gap:10px;padding:0 12px;background:var(--painel);border-bottom:1px solid var(--linha-borda);
+  box-shadow:var(--sombra)}
+#topo .marca{height:22px}
+#topo .tit{font-size:14px;font-weight:800;letter-spacing:.01em;flex:1 1 auto;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#topo button{background:transparent;border:0;color:var(--txt2);font-size:12px;font-weight:700;
+  padding:8px;border-radius:8px}
+#topo button:hover{color:var(--acento-forte);background:var(--acento-suave)}
+main{max-width:720px;margin:0 auto;padding:14px 12px 96px}
+h2{margin:0 0 4px;font-size:19px;font-weight:800}
+.sub{margin:0 0 16px;color:var(--txt2);font-size:13px;line-height:1.5}
+
+/* ---- controles ---- */
+.campo{display:block;margin-bottom:14px}
+.campo>span{display:block;font-size:10px;font-weight:800;letter-spacing:.09em;
+  text-transform:uppercase;color:var(--txt2);margin-bottom:5px}
+.campo input,.campo select,.campo textarea{width:100%;min-height:46px;border-radius:10px;
+  padding:11px 12px;border:1px solid var(--linha-borda);background:var(--painel-alt)}
+.campo textarea{min-height:96px;resize:vertical;line-height:1.5}
+.campo input:focus,.campo select:focus,.campo textarea:focus{outline:2px solid var(--acento);
+  outline-offset:-1px;background:var(--painel)}
+.principal{width:100%;min-height:50px;border:0;border-radius:11px;background:var(--acento);
+  color:#fff;font-weight:800;font-size:15px;box-shadow:var(--sombra)}
+.principal:hover:not(:disabled){background:var(--acento-forte)}
+.principal:disabled{opacity:.5;cursor:not-allowed}
+.secundario{width:100%;min-height:46px;border:1px solid var(--linha-borda);border-radius:11px;
+  background:var(--painel);font-weight:700;color:var(--txt2)}
+.secundario:hover{border-color:var(--acento);color:var(--acento-forte);background:var(--acento-suave)}
+
+/* ---- recados ---- */
+.recado{border-radius:10px;padding:11px 13px;font-size:13px;line-height:1.5;margin-bottom:14px}
+.recado.erro{background:#fdecea;color:#8e1b0a;border:1px solid #f3c4bb}
+.recado.ok{background:#e9f5ea;color:#1d5220;border:1px solid #bfdcc1}
+.recado.aviso{background:#fff6e5;color:#7a4d00;border:1px solid #f0d9a8}
+
+/* ---- cartões de escolha (departamento) ---- */
+.cartoes{display:grid;gap:10px}
+.cartao{display:flex;align-items:center;gap:12px;width:100%;text-align:left;
+  background:var(--painel);border:1px solid var(--linha-borda);border-left:4px solid var(--acento);
+  border-radius:12px;padding:15px 14px;box-shadow:var(--sombra)}
+.cartao:hover{background:var(--acento-suave);border-color:var(--acento)}
+.cartao b{display:block;font-size:16px}
+.cartao small{color:var(--txt2);font-size:12px}
+.cartao .seta{margin-left:auto;color:var(--acento);font-weight:800}
+
+/* ---- lista de equipes com busca ---- */
+.busca{position:sticky;top:var(--topo);z-index:10;display:flex;align-items:center;gap:8px;
+  padding:8px 0;background:var(--fundo)}
+.busca input{flex:1 1 auto;min-width:0;min-height:44px;border-radius:10px;padding:0 12px;
+  border:1px solid var(--linha-borda);background:var(--painel-alt)}
+.busca input:focus{outline:2px solid var(--acento);outline-offset:-1px}
+.conta{flex:0 0 auto;font-size:10px;font-weight:800;color:var(--txt3);
+  font-variant-numeric:tabular-nums}
+.equipes{display:grid;gap:8px}
+.equipe{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:var(--painel);
+  border:1px solid var(--linha-borda);border-radius:11px;padding:13px 13px}
+.equipe[hidden]{display:none}
+.equipe:hover{border-color:var(--acento);background:var(--acento-suave)}
+.equipe b{font-size:15px}
+.equipe small{display:block;color:var(--txt2);font-size:11.5px}
+.vazio{color:var(--txt3);font-size:13px;padding:16px 2px;text-align:center}
+
+/* ---- perguntas ---- */
+.progresso{position:sticky;top:var(--topo);z-index:10;background:var(--fundo);
+  padding:8px 0 10px;margin-bottom:4px}
+.barra{height:8px;border-radius:5px;background:var(--painel-alt);overflow:hidden;
+  border:1px solid var(--linha-borda)}
+.barra i{display:block;height:100%;background:var(--acento);transition:width .2s}
+.progresso .txt{display:flex;justify-content:space-between;font-size:11px;font-weight:700;
+  color:var(--txt2);margin-top:5px}
+.pergunta{background:var(--painel);border:1px solid var(--linha-borda);border-radius:12px;
+  padding:13px;margin-bottom:10px}
+.pergunta.pendente{border-left:4px solid var(--medio)}
+.pergunta.nok{border-left:4px solid var(--ruim);background:#fffafa}
+.pergunta .texto{font-size:14px;line-height:1.5;margin-bottom:11px}
+.pergunta .num{color:var(--txt3);font-weight:800;font-size:11px;margin-right:6px}
+.opcoes{display:grid;grid-template-columns:repeat(3,1fr);gap:7px}
+.opcoes button{min-height:46px;border-radius:9px;border:1px solid var(--linha-borda);
+  background:var(--painel-alt);font-size:12.5px;font-weight:700;color:var(--txt2);padding:4px}
+.opcoes button:hover{border-color:var(--txt3)}
+.opcoes button.on[data-v=conforme]{background:var(--bom);border-color:var(--bom);color:#fff}
+.opcoes button.on[data-v=nao_conforme]{background:var(--ruim);border-color:var(--ruim);color:#fff}
+.opcoes button.on[data-v=na]{background:var(--txt2);border-color:var(--txt2);color:#fff}
+
+/* ---- rodapé fixo de ação ---- */
+#rodape{position:fixed;left:0;right:0;bottom:0;z-index:20;padding:10px 12px;
+  padding-bottom:calc(10px + env(safe-area-inset-bottom));background:var(--painel);
+  border-top:1px solid var(--linha-borda);box-shadow:0 -1px 4px rgba(60,44,28,.08)}
+#rodape .dentro{max-width:720px;margin:0 auto;display:flex;gap:8px}
+#rodape .principal,#rodape .secundario{flex:1 1 auto}
+
+/* ---- lista de inspeções ---- */
+.insp{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:var(--painel);
+  border:1px solid var(--linha-borda);border-radius:11px;padding:12px;margin-bottom:8px}
+.insp:hover{border-color:var(--acento)}
+.etiq{flex:0 0 auto;font-size:10px;font-weight:800;padding:3px 8px;border-radius:20px;
+  text-transform:uppercase;letter-spacing:.06em}
+.etiq.rascunho{background:#fff6e5;color:#7a4d00}
+.etiq.enviada{background:#e9f5ea;color:#1d5220}
+
+@media (min-width:560px){ .opcoes{grid-template-columns:repeat(3,1fr)} }
+</style>
+
+<div id="topo">
+  <img class="marca" id="logo" alt="Teccel">
+  <div class="tit" id="tituloTopo">Inspeções SESMT</div>
+  <button id="btSair" class="oculto">Sair</button>
+</div>
+<main id="tela"></main>
+<div id="rodape" class="oculto"><div class="dentro" id="rodapeDentro"></div></div>
+<script src="app.js"></script>
