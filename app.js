@@ -136,6 +136,7 @@ async function api(caminho, opcoes, jaRenovou) {
    ============================================================ */
 const App = {
   departamentos: [], equipes: [], perguntas: {},   // por departamento
+  tipos: [],                                       // tipo de equipe -> departamento
   rascunho: null,                                  // inspeção em preenchimento
   buscaEquipe: ""
 };
@@ -324,12 +325,14 @@ async function iniciar() {
     }
     Sessao.inspetor = eu[0].inspetor;
 
-    const [deps, eqs] = await Promise.all([
+    const [deps, eqs, tipos] = await Promise.all([
       api("sesmt_departamentos?select=codigo,nome&ativo=is.true&order=ordem"),
-      api("sesmt_equipes?select=equipe,tipo,supervisor&order=equipe")
+      api("sesmt_equipes?select=equipe,tipo,supervisor&order=equipe"),
+      api("sesmt_tipos_equipe?select=tipo,nome,departamento&order=ordem")
     ]);
     App.departamentos = deps;
     App.equipes = eqs;
+    App.tipos = tipos;
     telaInicio();
   } catch (e) {
     topo("Inspeções SESMT", true);
@@ -391,14 +394,34 @@ async function telaInicio() {
   } catch (e) { /* lista é conforto, não trava o app */ }
 }
 
+/* As equipes de um departamento saem do TIPO delas: linha morta e
+   manutenção são de DCMD C&M, poda é de DCMD PODA, e assim por diante.
+   A regra mora no banco (sesmt_tipos_equipe) para o app e o painel
+   lerem a mesma — duas cópias divergem com o tempo. */
+function equipesDo(codigo) {
+  const meus = new Set(App.tipos.filter(t => t.departamento === codigo).map(t => t.tipo));
+  return App.equipes.filter(e => meus.has(e.tipo));
+}
+
 /* ---------- 4. Escolher a equipe ---------- */
 function telaEquipe(dep) {
   topo(dep.nome, true);
   rodape(`<button class="secundario" id="btVoltar">← Departamento</button>`);
   App.buscaEquipe = "";
+  const equipes = equipesDo(dep.codigo);
+
+  if (!equipes.length) {
+    tela().innerHTML = "";
+    recado(tela(), "aviso", `Nenhuma equipe de ${dep.nome} está cadastrada. `
+      + "Fale com o administrador — o departamento de uma equipe vem do tipo dela.");
+    $("#btVoltar").onclick = telaInicio;
+    return;
+  }
+
   tela().innerHTML = `
     <h2>Qual equipe?</h2>
-    <p class="sub">São ${App.equipes.length} equipes cadastradas. Busque pelo nome ou pelo supervisor.</p>
+    <p class="sub">${equipes.length} ${equipes.length === 1 ? "equipe" : "equipes"} de
+      ${esc(dep.nome)}. Busque pelo nome ou pelo supervisor.</p>
     <div class="busca">
       <input type="search" id="bq" placeholder="Buscar equipe ou supervisor…" aria-label="Buscar equipe">
       <span class="conta" id="cq"></span>
@@ -406,7 +429,7 @@ function telaEquipe(dep) {
     <div class="equipes" id="lq"></div>
     <div class="vazio oculto" id="vq">Nenhuma equipe bate com a busca.</div>`;
 
-  $("#lq").innerHTML = App.equipes.map(e =>
+  $("#lq").innerHTML = equipes.map(e =>
     `<button class="equipe" data-eq="${esc(e.equipe)}"
        data-busca="${esc(e.equipe + " " + (e.supervisor || ""))}">
        <span><b>${esc(e.equipe)}</b>
@@ -422,7 +445,7 @@ function telaEquipe(dep) {
       b.hidden = !bate;
       if (bate) n++;
     });
-    $("#cq").textContent = q ? (n ? n + " de " + App.equipes.length : "") : "";
+    $("#cq").textContent = q ? (n ? n + " de " + equipes.length : "") : "";
     $("#vq").classList.toggle("oculto", !(q && !n));
   };
   cx.oninput = () => { App.buscaEquipe = cx.value; filtrar(); };
