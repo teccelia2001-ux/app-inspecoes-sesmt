@@ -12,9 +12,17 @@ O acesso é criado pelo administrador, na aba **Ajustes → Inspetores** do
 [painel de inspeções](https://teccelia2001-ux.github.io/painel-inspecoes-sesmt/).
 Não há cadastro por aqui.
 
+## Instalável no celular
+
+Abra o link, e no menu do navegador escolha **Adicionar à tela inicial**.
+Instalado, o app abre sem a barra de endereço e funciona sem sinal — o que o
+inspetor responde fica guardado no aparelho e sobe sozinho quando a conexão
+volta.
+
 ## O que há neste repositório
 
-Só o aplicativo: `index.html` e `app.js`, sem dependência nenhuma.
+Só o aplicativo: `index.html`, `app.js`, o manifest, o service worker e os
+ícones. Sem dependência nenhuma.
 
 As perguntas **não estão no código** — são carregadas do banco quando o inspetor
 escolhe o departamento. O esquema do banco, o catálogo das perguntas e a função

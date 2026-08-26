@@ -141,6 +141,127 @@ const App = {
 };
 
 /* ============================================================
+   RASCUNHO — a resposta não pode se perder
+
+   Inspeção é feita em campo, com sinal ruim e celular que morre.
+   Antes, o que o inspetor respondia só saía da memória quando ele
+   apertava "Salvar rascunho": fechar o app no meio custava tudo.
+
+   Agora são duas camadas:
+   1. O APARELHO, a cada toque. Gravação síncrona no localStorage,
+      sem rede envolvida — é o que sobrevive a fechar o app, acabar
+      a bateria ou o navegador descartar a aba.
+   2. O SERVIDOR, sozinho, alguns segundos depois da última resposta.
+      Sem sinal, fica pendente e vai quando a conexão voltar.
+
+   O que manda é a camada 1: enquanto houver cópia no aparelho, nada
+   se perdeu, mesmo que o servidor nunca tenha sido alcançado.
+   ============================================================ */
+const CHAVE_RASCUNHO = "sesmt-inspecoes.rascunho.v1";
+const ESPERA_SYNC = 1500;   // ms de quietude antes de mandar ao servidor
+
+const Rascunho = {
+  timer: null,
+  sincronizando: false,
+  pendente: false,          // há coisa gravada aqui que o servidor não tem
+  aoMudarEstado: null,      // a tela liga aqui para mostrar a situação
+
+  /* Camada 1: instantânea, sem rede. */
+  guardar() {
+    const R = App.rascunho;
+    if (!R) return;
+    this.pendente = true;
+    try {
+      localStorage.setItem(CHAVE_RASCUNHO, JSON.stringify({
+        id: R.id, dep: R.dep, equipe: R.equipe, data: R.data, placa: R.placa,
+        respostas: R.respostas, desvios: R.desvios,
+        inspetor: Sessao.inspetor, em: Date.now()
+      }));
+    } catch (e) {
+      /* Sem armazenamento (aba privada, disco cheio) o app segue
+         funcionando, só perde a rede de segurança. Avisa a tela. */
+      this.semArmazenamento = true;
+    }
+    this.avisar();
+    this.agendar();
+  },
+
+  lerGuardado() {
+    try { return JSON.parse(localStorage.getItem(CHAVE_RASCUNHO) || "null"); }
+    catch (e) { return null; }
+  },
+
+  limpar() {
+    this.pendente = false;
+    clearTimeout(this.timer);
+    try { localStorage.removeItem(CHAVE_RASCUNHO); } catch (e) {}
+    this.avisar();
+  },
+
+  /* Camada 2: espera o inspetor parar de responder e manda. Cada
+     resposta nova adia o envio, para não disparar 36 chamadas
+     seguidas enquanto ele preenche. */
+  agendar() {
+    clearTimeout(this.timer);
+    this.timer = setTimeout(() => this.sincronizar(), ESPERA_SYNC);
+  },
+
+  async sincronizar(forcar) {
+    if (this.sincronizando) return false;
+    const R = App.rascunho;
+    if (!R || (!this.pendente && !forcar)) return true;
+    this.sincronizando = true;
+    this.avisar();
+    try {
+      const linhas = Object.entries(R.respostas)
+        .map(([pergunta, resposta]) => ({ inspecao: R.id, pergunta, resposta }));
+      if (linhas.length) {
+        await api("sesmt_respostas?on_conflict=inspecao,pergunta", {
+          method: "POST",
+          headers: { Prefer: "resolution=merge-duplicates" },
+          body: linhas
+        });
+      }
+      await api("sesmt_inspecoes?id=eq." + encodeURIComponent(R.id), {
+        method: "PATCH", body: { desvios: R.desvios || null }
+      });
+      this.pendente = false;
+      return true;
+    } catch (e) {
+      /* Falhou: o que importa é que a camada 1 continua de pé. */
+      this.pendente = true;
+      return false;
+    } finally {
+      this.sincronizando = false;
+      this.avisar();
+    }
+  },
+
+  situacao() {
+    if (this.semArmazenamento) return { txt: "sem memória no aparelho", cls: "aviso" };
+    if (this.sincronizando) return { txt: "salvando…", cls: "" };
+    if (this.pendente) return navigator.onLine
+      ? { txt: "salvo no aparelho", cls: "" }
+      : { txt: "sem sinal — salvo no aparelho", cls: "aviso" };
+    return { txt: "salvo", cls: "ok" };
+  },
+
+  avisar() { if (this.aoMudarEstado) this.aoMudarEstado(this.situacao()); }
+};
+
+/* Voltou o sinal: manda o que estiver pendente, sem o inspetor pedir. */
+window.addEventListener("online", () => Rascunho.sincronizar());
+
+/* Saindo da tela (trocou de app, bloqueou o celular): grava agora, sem
+   esperar o temporizador. É o momento em que o navegador mais mata aba. */
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden" && App.rascunho) {
+    Rascunho.guardar();
+    Rascunho.sincronizar();
+  }
+});
+
+/* ============================================================
    TELAS
    ============================================================ */
 function topo(titulo, mostrarSair) {
@@ -234,6 +355,20 @@ async function telaInicio() {
      </button>`).join("");
   $("#deps").querySelectorAll(".cartao").forEach(b =>
     b.onclick = () => telaEquipe(App.departamentos.find(d => d.codigo === b.dataset.cod)));
+
+  /* Sobrou rascunho no aparelho de uma sessão anterior? Aparece primeiro,
+     antes de tudo: é o que o inspetor mais precisa ver ao abrir. */
+  const guardado = Rascunho.lerGuardado();
+  if (guardado && guardado.inspetor === Sessao.inspetor) {
+    const quando = new Date(guardado.em);
+    const n = Object.keys(guardado.respostas || {}).length;
+    recado(tela(), "aviso",
+      `Você tem uma inspeção começada em ${esc(guardado.equipe)} — ${n} `
+      + `${n === 1 ? "resposta" : "respostas"}, de `
+      + `${quando.toLocaleDateString("pt-BR")} às `
+      + `${quando.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}. `
+      + "Ela está na lista abaixo, como rascunho.");
+  }
 
   /* As últimas inspeções deste inspetor, para retomar rascunho */
   try {
@@ -354,6 +489,7 @@ async function abrirPerguntas(dep, equipe, data, placa) {
       id: criada[0].id, dep: dep, equipe: equipe, data: data, placa: placa,
       perguntas: perg, respostas: {}, desvios: ""
     };
+    Rascunho.guardar();
     telaPerguntas();
   } catch (e) {
     topo(equipe, true);
@@ -378,6 +514,20 @@ async function retomar(id) {
       perguntas: perg, desvios: i.desvios || "",
       respostas: Object.fromEntries(resp.map(r => [r.pergunta, r.resposta]))
     };
+    /* Se o aparelho tiver uma cópia desta mesma inspeção com mais
+       respostas do que o servidor, é porque ficou pendente: vale a
+       do aparelho, que é a mais nova. */
+    const local = Rascunho.lerGuardado();
+    if (local && local.id === i.id) {
+      const nLocal = Object.keys(local.respostas || {}).length;
+      const nServidor = Object.keys(App.rascunho.respostas).length;
+      if (nLocal >= nServidor) {
+        App.rascunho.respostas = local.respostas || {};
+        App.rascunho.desvios = local.desvios || App.rascunho.desvios;
+        Rascunho.pendente = nLocal > nServidor;
+      }
+    }
+    Rascunho.guardar();
     telaPerguntas();
   } catch (e) {
     tela().innerHTML = "";
@@ -395,6 +545,7 @@ function telaPerguntas() {
       <div class="barra"><i id="bi" style="width:0%"></i></div>
       <div class="txt"><span id="bt">0 de ${R.perguntas.length}</span>
         <span id="bn"></span></div>
+      <div class="situacao" id="bs"></div>
     </div>
     <div id="lp"></div>
     <label class="campo" style="margin-top:16px"><span>Desvios encontrados</span>
@@ -410,13 +561,25 @@ function telaPerguntas() {
       </div>
     </div>`).join("");
 
+  Rascunho.aoMudarEstado = est => {
+    const el = $("#bs");
+    if (!el) return;
+    el.textContent = est.txt;
+    el.className = "situacao " + est.cls;
+  };
+  Rascunho.avisar();
+
   $("#dv").value = R.desvios || "";
-  $("#dv").oninput = ev => { R.desvios = ev.target.value; };
+  $("#dv").oninput = ev => { R.desvios = ev.target.value; Rascunho.guardar(); };
 
   $("#lp").querySelectorAll(".pergunta").forEach(bloco => {
     const cod = bloco.dataset.cod;
     bloco.querySelectorAll(".opcoes button").forEach(b => {
-      b.onclick = () => { R.respostas[cod] = b.dataset.v; pintar(bloco, cod); atualizar(); };
+      b.onclick = () => {
+        R.respostas[cod] = b.dataset.v;
+        pintar(bloco, cod); atualizar();
+        Rascunho.guardar();          // no aparelho agora, no servidor daqui a pouco
+      };
     });
     pintar(bloco, cod);
   });
@@ -454,32 +617,35 @@ async function gravar(enviar) {
   const antes = enviar ? be.textContent : bs.textContent;
   (enviar ? be : bs).textContent = "Gravando…";
   try {
-    const linhas = Object.entries(R.respostas)
-      .map(([pergunta, resposta]) => ({ inspecao: R.id, pergunta, resposta }));
-    if (linhas.length) {
-      await api("sesmt_respostas?on_conflict=inspecao,pergunta", {
-        method: "POST",
-        headers: { Prefer: "resolution=merge-duplicates" },
-        body: linhas
+    Rascunho.guardar();
+    /* Sobe tudo primeiro. Marcar como enviada sem as respostas terem
+       chegado deixaria no banco uma inspeção enviada e vazia. */
+    const subiu = await Rascunho.sincronizar(true);
+    if (!subiu) throw new Error(navigator.onLine
+      ? "o servidor não respondeu"
+      : "sem sinal — o que você respondeu está guardado no aparelho");
+
+    if (enviar) {
+      await api("sesmt_inspecoes?id=eq." + encodeURIComponent(R.id), {
+        method: "PATCH", body: { enviada_em: new Date().toISOString() }
       });
+      Rascunho.limpar();
+      App.rascunho = null;
+      telaFim(R);
     }
-    await api("sesmt_inspecoes?id=eq." + encodeURIComponent(R.id), {
-      method: "PATCH",
-      body: Object.assign({ desvios: R.desvios || null },
-                          enviar ? { enviada_em: new Date().toISOString() } : {})
-    });
-    if (enviar) { App.rascunho = null; telaFim(R); }
     else {
       bs.disabled = be.disabled = false;
       bs.textContent = antes;
-      recado(tela(), "ok", "Rascunho salvo. Dá para fechar o app e voltar depois.");
+      recado(tela(), "ok", "Rascunho salvo no servidor. Dá para fechar o app "
+        + "e voltar depois, de qualquer aparelho.");
       setTimeout(() => { const r = tela().querySelector(".recado.ok"); if (r) r.remove(); }, 3500);
     }
   } catch (e) {
     bs.disabled = be.disabled = false;
     (enviar ? be : bs).textContent = antes;
-    recado(tela(), "erro", "Não deu para gravar: " + e.message
-      + " — o que você respondeu continua na tela, tente de novo.");
+    recado(tela(), "erro", "Não deu para enviar: " + e.message
+      + ". Nada se perdeu: as respostas estão guardadas no aparelho e sobem "
+      + "sozinhas quando a conexão voltar.");
   }
 }
 
@@ -499,6 +665,14 @@ function telaFim(R) {
 /* ============================================================
    PARTIDA
    ============================================================ */
+
+/* O service worker é o que deixa o app instalável — instalado, ele abre
+   sem a barra de endereço — e o que faz abrir sem sinal. Falhar aqui não
+   pode derrubar o app: sem ele o app funciona, só não instala. */
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () =>
+    navigator.serviceWorker.register("./sw.js").catch(() => {}));
+}
 $("#logo").src = LOGO;
 $("#btSair").onclick = () => { Sessao.esquecer(); telaLogin(); };
 

@@ -2,6 +2,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#fb4513">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icones/icone-192.png">
+<!-- iOS ignora o manifest: precisa destas duas para abrir sem a barra -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Inspeções">
+<link rel="apple-touch-icon" href="icones/icone-apple-180.png">
 <title>Inspeções SESMT</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -100,6 +107,10 @@ h2{margin:0 0 4px;font-size:19px;font-weight:800}
 .barra i{display:block;height:100%;background:var(--acento);transition:width .2s}
 .progresso .txt{display:flex;justify-content:space-between;font-size:11px;font-weight:700;
   color:var(--txt2);margin-top:5px}
+/* situação do rascunho: discreta, mas sempre à vista enquanto se responde */
+.situacao{font-size:10.5px;font-weight:700;color:var(--txt3);margin-top:3px}
+.situacao.ok{color:var(--bom)}
+.situacao.aviso{color:var(--medio)}
 .pergunta{background:var(--painel);border:1px solid var(--linha-borda);border-radius:12px;
   padding:13px;margin-bottom:10px}
 .pergunta.pendente{border-left:4px solid var(--medio)}
