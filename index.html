@@ -131,6 +131,12 @@ h2{margin:0 0 4px;font-size:19px;font-weight:800}
   border-top:1px solid var(--linha-borda);box-shadow:0 -1px 4px rgba(60,44,28,.08)}
 #rodape .dentro{max-width:720px;margin:0 auto;display:flex;gap:8px}
 #rodape .principal,#rodape .secundario{flex:1 1 auto}
+/* Com três botões, o "← Início" não disputa espaço com Enviar: ele é a saída,
+   não a ação principal. Sem isto, "Faltam 28" quebra em duas linhas no 360px. */
+   O width:auto é obrigatório: .secundario é width:100%, e com flex-shrink:0
+   o botão se recusava a encolher, ficando com 351px dos 375 e espremendo
+   "Faltam 28" em 66px. */
+#rodape #btSair{flex:0 0 auto;width:auto;padding-left:12px;padding-right:12px}
 
 /* ---- lista de inspeções ---- */
 .insp{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:var(--painel);

@@ -375,12 +375,28 @@ async function telaInicio() {
 
   /* As últimas inspeções deste inspetor, para retomar rascunho */
   try {
-    const lista = await api("sesmt_inspecoes?select=id,departamento,equipe,data,enviada_em"
-                            + "&order=criada_em.desc&limit=10");
+    /* TODOS os rascunhos e SÓ a última enviada.
+
+       Antes eram "as 10 últimas", sem filtrar por inspetor — e depois que as
+       122 do histórico entraram no banco, a tela virava uma pilha de inspeções
+       de abril, todas enviadas, que não servem para nada aqui: enviada não se
+       edita. O que o inspetor precisa ver é o que ele ainda pode retomar. A
+       última enviada fica como recibo do que acabou de mandar. */
+    const meu = "&inspetor=eq." + encodeURIComponent(Sessao.inspetor);
+    const [rascunhos, ultima] = await Promise.all([
+      api("sesmt_inspecoes?select=id,departamento,equipe,data,enviada_em"
+          + "&enviada_em=is.null" + meu + "&order=criada_em.desc"),
+      api("sesmt_inspecoes?select=id,departamento,equipe,data,enviada_em"
+          + "&enviada_em=not.is.null" + meu + "&order=enviada_em.desc&limit=1")
+    ]);
+    const lista = rascunhos.concat(ultima);
     if (!lista.length) return;
     const nomeDep = c => (App.departamentos.find(d => d.codigo === c) || {}).nome || c;
-    $("#minhas").innerHTML = `<h2 style="margin-top:26px">Suas últimas</h2>
-      <p class="sub">Rascunho pode ser retomado. Enviada não muda mais.</p>` +
+    $("#minhas").innerHTML = `<h2 style="margin-top:26px">Suas inspeções</h2>
+      <p class="sub">${rascunhos.length
+        ? `${rascunhos.length} em rascunho, que dá para retomar.`
+        : "Nenhum rascunho aberto."}${ultima.length
+        ? " Abaixo, a última que você enviou." : ""}</p>` +
       lista.map(i => `<div class="insp-linha">
         <button class="insp" data-id="${esc(i.id)}" ${i.enviada_em ? "disabled" : ""}>
           <span style="flex:1 1 auto">
@@ -644,8 +660,11 @@ function telaPerguntas() {
   });
   /* o rodapé vem antes de atualizar(): é ele que cria o botão Enviar,
      e atualizar() já mexe no estado desse botão */
-  rodape(`<button class="secundario" id="btSalvar">Salvar rascunho</button>
+  rodape(`<button class="secundario" id="btSair">← Início</button>
+          <button class="secundario" id="btSalvar"
+                  title="Salvar o rascunho e continuar nesta inspeção">Salvar</button>
           <button class="principal" id="btEnviar">Enviar</button>`);
+  $("#btSair").onclick = () => deixarComoRascunho();
   $("#btSalvar").onclick = () => gravar(false);
   $("#btEnviar").onclick = () => gravar(true);
   atualizar();
@@ -665,6 +684,39 @@ function telaPerguntas() {
     $("#bn").textContent = nok ? nok + (nok === 1 ? " não conforme" : " não conformes") : "";
     $("#btEnviar").disabled = n < t;
     $("#btEnviar").textContent = n < t ? "Faltam " + (t - n) : "Enviar";
+  }
+}
+
+/* Sair da inspeção deixando-a como rascunho, para começar outra.
+
+   É o que permite ter VÁRIAS inspeções em rascunho ao mesmo tempo: o campo
+   pede isso — o inspetor começa numa equipe, a turma se desloca, e ele abre
+   outra sem perder a primeira. Os rascunhos vivem no banco, um por inspeção.
+
+   Sobe antes de sair, e NÃO sai se não conseguir. O aparelho guarda um
+   rascunho só (é uma chave só no localStorage): começar outra inspeção
+   sobrescreve a cópia local. Enquanto o servidor não tiver as respostas,
+   sair seria perdê-las — então o botão insiste em vez de enganar. */
+async function deixarComoRascunho() {
+  const b = $("#btSair");
+  const antes = b.textContent;
+  b.disabled = true; b.textContent = "Guardando…";
+  try {
+    Rascunho.guardar();
+    const subiu = await Rascunho.sincronizar(true);
+    if (!subiu) throw new Error(navigator.onLine
+      ? "o servidor não respondeu"
+      : "sem sinal");
+    Rascunho.limpar();        // o banco já tem: o aparelho pode largar
+    App.rascunho = null;
+    await telaInicio();
+    recado(tela(), "ok", "Guardado como rascunho. Ele está na lista abaixo, "
+      + "e dá para começar outra inspeção agora.");
+  } catch (e) {
+    b.disabled = false; b.textContent = antes;
+    recado(tela(), "erro", "Não deu para guardar no servidor: " + e.message
+      + ". Você continua nesta inspeção — nada se perdeu. Tente de novo quando "
+      + "a conexão voltar, ou termine e envie por aqui mesmo.");
   }
 }
 
