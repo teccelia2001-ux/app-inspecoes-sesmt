@@ -164,6 +164,7 @@ const ESPERA_SYNC = 1500;   // ms de quietude antes de mandar ao servidor
 const Rascunho = {
   timer: null,
   sincronizando: false,
+  emCurso: null,            // promessa da subida no ar, para quem chegar depois
   pendente: false,          // há coisa gravada aqui que o servidor não tem
   aoMudarEstado: null,      // a tela liga aqui para mostrar a situação
 
@@ -207,8 +208,24 @@ const Rascunho = {
     this.timer = setTimeout(() => this.sincronizar(), ESPERA_SYNC);
   },
 
+  /* Já existe uma subida no ar? ESPERA ela acabar e sobe de novo — não
+     devolve false.
+
+     Devolver false quebrava os dois botões que dependem disto. O rascunho
+     sobe sozinho 1,5 s depois de cada resposta; quem responde e toca em
+     "← Início" ou "Enviar" logo em seguida cai bem no meio dessa subida, e
+     recebia "o servidor não respondeu" com a rede perfeita. */
   async sincronizar(forcar) {
-    if (this.sincronizando) return false;
+    if (this.emCurso) {
+      await this.emCurso.catch(() => {});
+      if (!forcar && !this.pendente) return true;
+    }
+    this.emCurso = this.subir(forcar);
+    try { return await this.emCurso; }
+    finally { this.emCurso = null; }
+  },
+
+  async subir(forcar) {
     const R = App.rascunho;
     if (!R || (!this.pendente && !forcar)) return true;
     this.sincronizando = true;
