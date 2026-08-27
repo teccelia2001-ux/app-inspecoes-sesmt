@@ -15,6 +15,14 @@ const SERVIDOR = {
   chave: "sb_publishable_4IcV3231DtKqDuBdoPdG8A_sgt8vbOP"
 };
 
+/* Versão do código, mostrada no rodapé da tela inicial e da de login.
+
+   Existe porque em 27/08/2026 gastei três tentativas sem saber se o celular
+   estava rodando a correção ou uma cópia guardada pelo service worker. Sem
+   isso, "não funcionou" não distingue código errado de código velho.
+   Subir JUNTO com a VERSAO do sw.js. */
+const VERSAO_APP = "v5 · 27/08/2026";
+
 /* Logo em SVG para o app não depender de arquivo externo */
 const LOGO = "data:image/svg+xml;utf8," + encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 24">' +
@@ -286,6 +294,29 @@ function topo(titulo, mostrarSair) {
   $("#tituloTopo").textContent = titulo;
   $("#btSair").classList.toggle("oculto", !mostrarSair);
 }
+
+/* Carimbo de versão no fim da tela. Toque nele para forçar a busca de uma
+   versão nova: pede ao service worker que se atualize e recarrega. */
+function carimboVersao(host) {
+  const d = document.createElement("p");
+  d.className = "versao";
+  d.textContent = VERSAO_APP + " · toque para atualizar";
+  d.onclick = async () => {
+    d.textContent = "Procurando versão nova…";
+    try {
+      if (navigator.serviceWorker) {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(regs.map(r => r.update()));
+      }
+      if (window.caches) {
+        const nomes = await caches.keys();
+        await Promise.all(nomes.map(n => caches.delete(n)));
+      }
+    } catch (e) { /* sem SW ou sem cache: recarregar já basta */ }
+    location.reload(true);
+  };
+  host.appendChild(d);
+}
 function rodape(html) {
   const r = $("#rodape");
   r.classList.toggle("oculto", !html);
@@ -309,6 +340,7 @@ function telaLogin(aviso) {
       <button class="principal" type="submit" id="btEntrar">Entrar</button>
     </form>`;
   if (aviso) recado(tela(), "erro", aviso);
+  carimboVersao(tela());
 
   $("#fLogin").onsubmit = async ev => {
     ev.preventDefault();
@@ -407,7 +439,9 @@ async function telaInicio() {
           + "&enviada_em=not.is.null" + meu + "&order=enviada_em.desc&limit=1")
     ]);
     const lista = rascunhos.concat(ultima);
-    if (!lista.length) return;
+    /* Sem nada para mostrar não desenha a seção — mas segue em frente:
+       um return aqui pulava o carimbo de versão no fim da função. */
+    if (!lista.length) { carimboVersao(tela()); return; }
     const nomeDep = c => (App.departamentos.find(d => d.codigo === c) || {}).nome || c;
     $("#minhas").innerHTML = `<h2 style="margin-top:26px">Suas inspeções</h2>
       <p class="sub">${rascunhos.length
@@ -432,6 +466,7 @@ async function telaInicio() {
     $("#minhas").querySelectorAll(".insp-x").forEach(b =>
       b.onclick = () => excluirRascunho(b.dataset.id, b.dataset.equipe));
   } catch (e) { /* lista é conforto, não trava o app */ }
+  carimboVersao(tela());
 }
 
 /* Excluir rascunho — apaga do BANCO, não só do aparelho.
