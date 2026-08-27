@@ -140,6 +140,14 @@ h2{margin:0 0 4px;font-size:19px;font-weight:800}
   text-transform:uppercase;letter-spacing:.06em}
 .etiq.rascunho{background:#fff6e5;color:#7a4d00}
 .etiq.enviada{background:#e9f5ea;color:#1d5220}
+/* O ✕ fica FORA do .insp: botão dentro de botão não vale em HTML, e no
+   celular o dedo erraria o alvo. 44px é o mínimo que se acerta sem olhar. */
+.insp-linha{display:flex;align-items:stretch;gap:8px}
+.insp-linha .insp{flex:1 1 auto;min-width:0}
+.insp-x{flex:0 0 44px;margin-bottom:8px;border-radius:11px;cursor:pointer;
+  border:1px solid var(--linha-borda);background:var(--painel);
+  color:var(--txt2);font-size:15px;line-height:1}
+.insp-x:hover{border-color:#e0655a;color:#b3261e;background:#fdecea}
 
 @media (min-width:560px){ .opcoes{grid-template-columns:repeat(3,1fr)} }
 </style>

@@ -381,17 +381,53 @@ async function telaInicio() {
     const nomeDep = c => (App.departamentos.find(d => d.codigo === c) || {}).nome || c;
     $("#minhas").innerHTML = `<h2 style="margin-top:26px">Suas últimas</h2>
       <p class="sub">Rascunho pode ser retomado. Enviada não muda mais.</p>` +
-      lista.map(i => `<button class="insp" data-id="${esc(i.id)}" ${i.enviada_em ? "disabled" : ""}>
-        <span style="flex:1 1 auto">
-          <b>${esc(i.equipe)}</b>
-          <small>${esc(nomeDep(i.departamento))} · ${dataBR(i.data)}</small>
-        </span>
-        <span class="etiq ${i.enviada_em ? "enviada" : "rascunho"}">${
-          i.enviada_em ? "enviada" : "rascunho"}</span>
-      </button>`).join("");
+      lista.map(i => `<div class="insp-linha">
+        <button class="insp" data-id="${esc(i.id)}" ${i.enviada_em ? "disabled" : ""}>
+          <span style="flex:1 1 auto">
+            <b>${esc(i.equipe)}</b>
+            <small>${esc(nomeDep(i.departamento))} · ${dataBR(i.data)}</small>
+          </span>
+          <span class="etiq ${i.enviada_em ? "enviada" : "rascunho"}">${
+            i.enviada_em ? "enviada" : "rascunho"}</span>
+        </button>
+        ${i.enviada_em ? "" : `<button class="insp-x" data-id="${esc(i.id)}"
+          data-equipe="${esc(i.equipe)}" title="Excluir este rascunho"
+          aria-label="Excluir o rascunho de ${esc(i.equipe)}">✕</button>`}
+      </div>`).join("");
     $("#minhas").querySelectorAll(".insp:not([disabled])").forEach(b =>
       b.onclick = () => retomar(b.dataset.id));
+    $("#minhas").querySelectorAll(".insp-x").forEach(b =>
+      b.onclick = () => excluirRascunho(b.dataset.id, b.dataset.equipe));
   } catch (e) { /* lista é conforto, não trava o app */ }
+}
+
+/* Excluir rascunho — apaga do BANCO, não só do aparelho.
+
+   O rascunho nasce no banco antes da primeira resposta, para o celular
+   morrer no mato sem levar junto o que já foi respondido. O preço disso é
+   que rascunho abandonado fica lá: em 27/08/2026 havia dois, de 26/08, um
+   deles com 36 respostas. As respostas somem junto, por cascata.
+
+   Só rascunho: a política do banco (sesmt_inspecoes_apaga) recusa apagar
+   inspeção enviada, e o botão nem aparece nela. */
+async function excluirRascunho(id, equipe) {
+  if (!confirm(`Excluir o rascunho de ${equipe}?\n\n`
+      + "As respostas já dadas nele serão perdidas. Não dá para desfazer."))
+    return;
+  try {
+    await api("sesmt_inspecoes?id=eq." + encodeURIComponent(id), { method: "DELETE" });
+    /* Era este que estava guardado no aparelho? Então limpa também, senão
+       o app ofereceria retomar uma inspeção que não existe mais. */
+    const local = Rascunho.lerGuardado();
+    if (local && local.id === id) {
+      Rascunho.limpar();
+      if (App.rascunho && App.rascunho.id === id) App.rascunho = null;
+    }
+    await telaInicio();
+    recado(tela(), "ok", `Rascunho de ${equipe} excluído.`);
+  } catch (e) {
+    recado(tela(), "erro", "Não deu para excluir: " + e.message);
+  }
 }
 
 /* As equipes de um departamento saem do TIPO delas: linha morta e
