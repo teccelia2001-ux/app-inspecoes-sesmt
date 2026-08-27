@@ -677,11 +677,11 @@ function telaPerguntas() {
   });
   /* o rodapé vem antes de atualizar(): é ele que cria o botão Enviar,
      e atualizar() já mexe no estado desse botão */
-  rodape(`<button class="secundario" id="btSair">← Início</button>
+  rodape(`<button class="secundario" id="btInicio">← Início</button>
           <button class="secundario" id="btSalvar"
                   title="Salvar o rascunho e continuar nesta inspeção">Salvar</button>
           <button class="principal" id="btEnviar">Enviar</button>`);
-  $("#btSair").onclick = () => deixarComoRascunho();
+  $("#btInicio").onclick = () => deixarComoRascunho();
   $("#btSalvar").onclick = () => gravar(false);
   $("#btEnviar").onclick = () => gravar(true);
   atualizar();
@@ -715,7 +715,7 @@ function telaPerguntas() {
    sobrescreve a cópia local. Enquanto o servidor não tiver as respostas,
    sair seria perdê-las — então o botão insiste em vez de enganar. */
 async function deixarComoRascunho() {
-  const b = $("#btSair");
+  const b = $("#btInicio");
   const antes = b.textContent;
   b.disabled = true; b.textContent = "Guardando…";
   try {
