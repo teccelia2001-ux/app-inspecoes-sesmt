@@ -15,7 +15,7 @@
    Chamada ao Supabase nunca é guardada em cache: resposta velha de banco seria
    pior do que erro de rede. */
 
-var VERSAO = "inspecoes-v7";   // v7: botao separado para galeria (28/08/2026)
+var VERSAO = "inspecoes-v8";   // v8: sw revalida no servidor; app se atualiza sozinho (28/08/2026)
 var ESSENCIAIS = [
   "./",
   "./index.html",
@@ -72,9 +72,19 @@ self.addEventListener("fetch", function (e) {
     return;
   }
 
-  /* Página e código: rede primeiro, cache como rede de segurança. */
+  /* Página e código: rede primeiro, cache como rede de segurança.
+
+     cache:"no-cache" NÃO é exagero. O GitHub Pages responde com
+     Cache-Control: max-age=600, e um fetch comum — mesmo aqui dentro —
+     é servido pelo cache HTTP do navegador durante esses 10 minutos.
+     Resultado: "rede primeiro" não chegava à rede, e o celular continuava
+     na versão antiga depois de publicar. Com no-cache o navegador
+     revalida com o servidor pelo ETag: se nada mudou, a resposta é 304 e
+     não custa banda; se mudou, vem o arquivo novo na hora. */
   e.respondWith(
-    fetch(req).then(function (r) {
+    fetch(req, { cache: "no-cache" }).catch(function () {
+      return fetch(req);          // navegador antigo que ignore a opção
+    }).then(function (r) {
       var copia = r.clone();
       caches.open(VERSAO).then(function (c) { c.put(req, copia); });
       return r;

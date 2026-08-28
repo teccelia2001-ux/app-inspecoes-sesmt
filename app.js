@@ -21,7 +21,7 @@ const SERVIDOR = {
    estava rodando a correção ou uma cópia guardada pelo service worker. Sem
    isso, "não funcionou" não distingue código errado de código velho.
    Subir JUNTO com a VERSAO do sw.js. */
-const VERSAO_APP = "v7 · 28/08/2026";
+const VERSAO_APP = "v8 · 28/08/2026";
 
 /* Logo em SVG para o app não depender de arquivo externo */
 const LOGO = "data:image/svg+xml;utf8," + encodeURIComponent(
@@ -1034,8 +1034,24 @@ function telaFim(R) {
    sem a barra de endereço — e o que faz abrir sem sinal. Falhar aqui não
    pode derrubar o app: sem ele o app funciona, só não instala. */
 if ("serviceWorker" in navigator) {
+  /* Registrar não basta: o app instalado quase nunca faz uma navegação nova,
+     então o navegador pode passar horas sem sequer PERGUNTAR se há versão
+     nova. Foi o que aconteceu em 28/08/2026 — o servidor já tinha a v7 e o
+     celular continuava na v6.
+
+     Aqui o app pergunta a cada abertura, e recarrega sozinho quando um
+     service worker novo assume. O recarregamento acontece UMA vez: sem a
+     trava, cada troca de controlador dispararia outra, em laço. */
+  let jaRecarregou = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (jaRecarregou) return;
+    jaRecarregou = true;
+    location.reload();
+  });
   window.addEventListener("load", () =>
-    navigator.serviceWorker.register("./sw.js").catch(() => {}));
+    navigator.serviceWorker.register("./sw.js")
+      .then(reg => reg.update())
+      .catch(() => {}));
 }
 $("#logo").src = LOGO;
 $("#btSair").onclick = () => { Sessao.esquecer(); telaLogin(); };
