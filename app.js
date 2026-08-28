@@ -21,7 +21,7 @@ const SERVIDOR = {
    estava rodando a correção ou uma cópia guardada pelo service worker. Sem
    isso, "não funcionou" não distingue código errado de código velho.
    Subir JUNTO com a VERSAO do sw.js. */
-const VERSAO_APP = "v6 · 28/08/2026";
+const VERSAO_APP = "v7 · 28/08/2026";
 
 /* Logo em SVG para o app não depender de arquivo externo */
 const LOGO = "data:image/svg+xml;utf8," + encodeURIComponent(
@@ -681,20 +681,19 @@ function telaPerguntas() {
     <div class="campo"><span>Fotos</span>
       <p class="sub" style="margin:0 0 8px">Tire na hora ou escolha da galeria.
         Cada foto sobe assim que é escolhida.</p>
-      <div class="fotos-grupo" data-tipo="desvio">
-        <div class="fotos-tit">Desvios</div>
+      ${["desvio", "boa_pratica"].map(t => `
+      <div class="fotos-grupo" data-tipo="${t}">
+        <div class="fotos-tit">${t === "desvio" ? "Desvios" : "Boas práticas"}</div>
         <div class="fotos-lista"></div>
-        <label class="fotos-add">
-          <input type="file" accept="image/*" capture="environment" multiple hidden>
-          <span>📷 Adicionar foto do desvio</span></label>
-      </div>
-      <div class="fotos-grupo" data-tipo="boa_pratica">
-        <div class="fotos-tit">Boas práticas</div>
-        <div class="fotos-lista"></div>
-        <label class="fotos-add">
-          <input type="file" accept="image/*" capture="environment" multiple hidden>
-          <span>📷 Adicionar foto de boa prática</span></label>
-      </div>
+        <div class="fotos-botoes">
+          <label class="fotos-add">
+            <input type="file" accept="image/*" capture="environment" hidden>
+            <span>📷 Tirar foto</span></label>
+          <label class="fotos-add">
+            <input type="file" accept="image/*" multiple hidden>
+            <span>🖼 Da galeria</span></label>
+        </div>
+      </div>`).join("")}
     </div>`;
 
   $("#lp").innerHTML = R.perguntas.map((p, i) => `
@@ -941,9 +940,15 @@ function ligarFotos() {
     });
   };
 
-  grupos.forEach(g => {
-    const input = g.querySelector("input[type=file]");
-    const bt = g.querySelector(".fotos-add span");
+  /* DOIS campos por grupo, e não um só com capture="environment".
+
+     Com capture, o Android e o iOS abrem a câmera DIRETO e não oferecem a
+     galeria — foto já tirada antes, ou vinda do WhatsApp, ficava inacessível.
+     Sem capture, alguns aparelhos abrem só o seletor de arquivos e escondem a
+     câmera. Nenhum dos dois sozinho atende, então cada um vira um botão:
+     "Tirar foto" com capture, "Da galeria" sem. */
+  grupos.forEach(g => g.querySelectorAll("input[type=file]").forEach(input => {
+    const bt = input.parentElement.querySelector("span");
     const rotulo = bt.textContent;
     input.onchange = async () => {
       const arquivos = [...input.files];
@@ -963,7 +968,7 @@ function ligarFotos() {
       bt.textContent = rotulo;
       await desenhar();
     };
-  });
+  }));
 
   desenhar();
 }
