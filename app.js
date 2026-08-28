@@ -21,7 +21,7 @@ const SERVIDOR = {
    estava rodando a correção ou uma cópia guardada pelo service worker. Sem
    isso, "não funcionou" não distingue código errado de código velho.
    Subir JUNTO com a VERSAO do sw.js. */
-const VERSAO_APP = "v5 · 27/08/2026";
+const VERSAO_APP = "v6 · 28/08/2026";
 
 /* Logo em SVG para o app não depender de arquivo externo */
 const LOGO = "data:image/svg+xml;utf8," + encodeURIComponent(
@@ -676,7 +676,26 @@ function telaPerguntas() {
     </div>
     <div id="lp"></div>
     <label class="campo" style="margin-top:16px"><span>Desvios encontrados</span>
-      <textarea id="dv" placeholder="Descreva o que foi encontrado. Se não houve, escreva &quot;Não houve desvios&quot;."></textarea></label>`;
+      <textarea id="dv" placeholder="Descreva o que foi encontrado. Se não houve, escreva &quot;Não houve desvios&quot;."></textarea></label>
+
+    <div class="campo"><span>Fotos</span>
+      <p class="sub" style="margin:0 0 8px">Tire na hora ou escolha da galeria.
+        Cada foto sobe assim que é escolhida.</p>
+      <div class="fotos-grupo" data-tipo="desvio">
+        <div class="fotos-tit">Desvios</div>
+        <div class="fotos-lista"></div>
+        <label class="fotos-add">
+          <input type="file" accept="image/*" capture="environment" multiple hidden>
+          <span>📷 Adicionar foto do desvio</span></label>
+      </div>
+      <div class="fotos-grupo" data-tipo="boa_pratica">
+        <div class="fotos-tit">Boas práticas</div>
+        <div class="fotos-lista"></div>
+        <label class="fotos-add">
+          <input type="file" accept="image/*" capture="environment" multiple hidden>
+          <span>📷 Adicionar foto de boa prática</span></label>
+      </div>
+    </div>`;
 
   $("#lp").innerHTML = R.perguntas.map((p, i) => `
     <div class="pergunta pendente" data-cod="${esc(p.codigo)}">
@@ -698,6 +717,8 @@ function telaPerguntas() {
 
   $("#dv").value = R.desvios || "";
   $("#dv").oninput = ev => { R.desvios = ev.target.value; Rascunho.guardar(); };
+
+  ligarFotos();
 
   $("#lp").querySelectorAll(".pergunta").forEach(bloco => {
     const cod = bloco.dataset.cod;
@@ -739,6 +760,118 @@ function telaPerguntas() {
   }
 }
 
+/* ============================================================
+   FOTOS DA INSPEÇÃO
+
+   Vão para o Storage do Supabase, bucket privado "inspecoes", em
+   <id-da-inspecao>/<arquivo>. A tabela sesmt_fotos guarda só o caminho —
+   é o caminho que liga o arquivo à inspeção e decide quem pode ver.
+
+   Três decisões que valem explicação:
+
+   1. A foto sobe NA HORA, não junto com o envio. Ela não cabe no rascunho
+      do aparelho (localStorage tem alguns megabytes no total, e uma foto
+      sozinha passa disso), e segurar uma pilha delas na memória até o fim
+      da inspeção é a receita para perder tudo se o app fechar.
+
+   2. É REDUZIDA antes de subir: 1280px no maior lado, JPEG 0.7. A câmera de
+      celular entrega 4 MB por foto; assim fica entre 150 e 300 KB. O plano
+      gratuito tem 1 GB, então o tamanho não é detalhe — é o que decide se
+      cabem 300 ou 4 mil fotos.
+
+   3. Sem sinal ela NÃO sobe, e o app diz isso. Diferente das respostas, que
+      ficam guardadas no aparelho e sobem depois, aqui não há como fingir que
+      deu certo: o arquivo não está em lugar nenhum até chegar ao servidor.
+   ============================================================ */
+const FOTO_LADO = 1280, FOTO_QUALIDADE = 0.7;
+
+const Fotos = {
+  /* Reduz no próprio aparelho. Sem isso o inspetor gasta o pacote de dados
+     dele mandando 4 MB de uma foto que será vista num quadrado de 3 cm. */
+  async reduzir(arquivo) {
+    const bmp = await createImageBitmap(arquivo);
+    const escala = Math.min(1, FOTO_LADO / Math.max(bmp.width, bmp.height));
+    const l = Math.round(bmp.width * escala), a = Math.round(bmp.height * escala);
+    const cv = document.createElement("canvas");
+    cv.width = l; cv.height = a;
+    cv.getContext("2d").drawImage(bmp, 0, 0, l, a);
+    bmp.close && bmp.close();
+    return new Promise(ok => cv.toBlob(ok, "image/jpeg", FOTO_QUALIDADE));
+  },
+
+  async enviar(arquivo, tipo) {
+    const R = App.rascunho;
+    if (!R) throw new Error("nenhuma inspeção aberta");
+    if (!navigator.onLine) throw new Error("sem sinal — a foto precisa de conexão");
+
+    const menor = await this.reduzir(arquivo);
+    /* Nome com hora e sorteio: duas fotos tiradas no mesmo segundo, de dois
+       aparelhos, não podem se sobrescrever. */
+    const nome = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.jpg`;
+    const caminho = `${R.id}/${nome}`;
+
+    const r = await fetch(`${SERVIDOR.url}/storage/v1/object/inspecoes/${caminho}`, {
+      method: "POST",
+      headers: {
+        apikey: SERVIDOR.chave,
+        Authorization: "Bearer " + Sessao.access,
+        "Content-Type": "image/jpeg"
+      },
+      body: menor
+    });
+    if (!r.ok) {
+      let d = ""; try { d = (await r.json()).message || ""; } catch (e) {}
+      throw new Error(d || `o servidor recusou o arquivo (${r.status})`);
+    }
+
+    /* A linha na tabela vem DEPOIS do arquivo: linha sem arquivo apontaria
+       para o vazio, e é pior do que arquivo sem linha, que só ocupa espaço. */
+    const [linha] = await api("sesmt_fotos", {
+      method: "POST",
+      headers: { Prefer: "return=representation" },
+      body: { inspecao: R.id, tipo, caminho }
+    });
+    return linha;
+  },
+
+  /* O bucket é privado: para mostrar a miniatura é preciso pedir uma URL
+     assinada, que expira. Uma hora basta para o tempo de uma inspeção. */
+  async ver(caminho) {
+    const r = await fetch(`${SERVIDOR.url}/storage/v1/object/sign/inspecoes/${caminho}`, {
+      method: "POST",
+      headers: {
+        apikey: SERVIDOR.chave,
+        Authorization: "Bearer " + Sessao.access,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ expiresIn: 3600 })
+    });
+    if (!r.ok) throw new Error("não deu para abrir a foto");
+    const j = await r.json();
+    /* O campo já se chamou signedURL e signedUrl conforme a versão do
+       Storage; aceitar os dois evita quebrar numa atualização do Supabase. */
+    const url = j.signedURL || j.signedUrl || "";
+    return url.startsWith("http") ? url : SERVIDOR.url + "/storage/v1" + url;
+  },
+
+  async listar() {
+    const R = App.rascunho;
+    if (!R) return [];
+    return api("sesmt_fotos?select=id,tipo,caminho&inspecao=eq."
+               + encodeURIComponent(R.id) + "&order=enviada_em");
+  },
+
+  async apagar(foto) {
+    await fetch(`${SERVIDOR.url}/storage/v1/object/inspecoes/${foto.caminho}`, {
+      method: "DELETE",
+      headers: { apikey: SERVIDOR.chave, Authorization: "Bearer " + Sessao.access }
+    });
+    /* Some da lista mesmo que o arquivo resista: linha órfã confunde o
+       inspetor, arquivo órfão só ocupa espaço. */
+    await api("sesmt_fotos?id=eq." + encodeURIComponent(foto.id), { method: "DELETE" });
+  }
+};
+
 /* Sair da inspeção deixando-a como rascunho, para começar outra.
 
    É o que permite ter VÁRIAS inspeções em rascunho ao mesmo tempo: o campo
@@ -770,6 +903,69 @@ async function deixarComoRascunho() {
       + ". Você continua nesta inspeção — nada se perdeu. Tente de novo quando "
       + "a conexão voltar, ou termine e envie por aqui mesmo.");
   }
+}
+
+/* Liga os dois grupos de foto da tela de perguntas.
+
+   Redesenha a lista a partir do BANCO, não de uma cópia na memória: se a
+   inspeção foi retomada em outro aparelho, as fotos já enviadas aparecem
+   aqui também. */
+function ligarFotos() {
+  const grupos = [...document.querySelectorAll(".fotos-grupo")];
+  if (!grupos.length) return;
+
+  const desenhar = async () => {
+    let fotos = [];
+    try { fotos = await Fotos.listar(); }
+    catch (e) { /* lista é conforto; sem ela ainda dá para adicionar */ }
+    grupos.forEach(g => {
+      const lista = g.querySelector(".fotos-lista");
+      const minhas = fotos.filter(f => f.tipo === g.dataset.tipo);
+      lista.innerHTML = minhas.length ? "" : `<span class="fotos-vazio">nenhuma foto</span>`;
+      minhas.forEach(f => {
+        const d = document.createElement("div");
+        d.className = "foto";
+        d.innerHTML = `<img alt="foto da inspeção">
+          <button type="button" class="foto-x" aria-label="Remover foto">✕</button>`;
+        lista.appendChild(d);
+        Fotos.ver(f.caminho).then(u => { d.querySelector("img").src = u; })
+          .catch(() => d.classList.add("sem-previa"));
+        d.querySelector(".foto-x").onclick = async () => {
+          if (!confirm("Remover esta foto? Não dá para desfazer.")) return;
+          d.classList.add("indo");
+          try { await Fotos.apagar(f); await desenhar(); }
+          catch (e) { d.classList.remove("indo");
+            recado(tela(), "erro", "Não deu para remover: " + e.message); }
+        };
+      });
+    });
+  };
+
+  grupos.forEach(g => {
+    const input = g.querySelector("input[type=file]");
+    const bt = g.querySelector(".fotos-add span");
+    const rotulo = bt.textContent;
+    input.onchange = async () => {
+      const arquivos = [...input.files];
+      input.value = "";                 // permite reescolher a mesma foto
+      if (!arquivos.length) return;
+      for (let i = 0; i < arquivos.length; i++) {
+        bt.textContent = arquivos.length > 1
+          ? `Enviando ${i + 1} de ${arquivos.length}…` : "Enviando…";
+        try {
+          await Fotos.enviar(arquivos[i], g.dataset.tipo);
+        } catch (e) {
+          recado(tela(), "erro", "Não deu para enviar a foto: " + e.message
+            + ". As respostas continuam guardadas.");
+          break;
+        }
+      }
+      bt.textContent = rotulo;
+      await desenhar();
+    };
+  });
+
+  desenhar();
 }
 
 /* ---------- 7. Gravar ---------- */

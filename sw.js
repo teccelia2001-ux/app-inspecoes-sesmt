@@ -15,7 +15,7 @@
    Chamada ao Supabase nunca é guardada em cache: resposta velha de banco seria
    pior do que erro de rede. */
 
-var VERSAO = "inspecoes-v5b";  // v5b: carimbo de versao na tela (27/08/2026)
+var VERSAO = "inspecoes-v6";   // v6: fotos da inspecao (28/08/2026)
 var ESSENCIAIS = [
   "./",
   "./index.html",

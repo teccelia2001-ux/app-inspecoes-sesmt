@@ -129,6 +129,30 @@ h2{margin:0 0 4px;font-size:19px;font-weight:800}
 .opcoes button.on[data-v=nao_conforme]{background:var(--ruim);border-color:var(--ruim);color:#fff}
 .opcoes button.on[data-v=na]{background:var(--txt2);border-color:var(--txt2);color:#fff}
 
+/* ---- fotos da inspeção ---- */
+.fotos-grupo{border:1px solid var(--linha-borda);border-radius:11px;
+  padding:10px;margin-bottom:10px;background:var(--painel)}
+.fotos-tit{font-size:10px;font-weight:800;letter-spacing:.09em;
+  text-transform:uppercase;color:var(--txt2);margin-bottom:8px}
+.fotos-lista{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px}
+.fotos-vazio{font-size:12px;color:var(--txt3)}
+.foto{position:relative;width:84px;height:84px;border-radius:9px;overflow:hidden;
+  border:1px solid var(--linha-borda);background:var(--painel-alt)}
+.foto img{width:100%;height:100%;object-fit:cover;display:block}
+.foto.sem-previa::after{content:"foto";position:absolute;inset:0;display:flex;
+  align-items:center;justify-content:center;font-size:11px;color:var(--txt3)}
+.foto.indo{opacity:.4}
+/* O ✕ fica grande o bastante para o dedo, mas fora do centro da imagem:
+   no celular, alvo pequeno em cima da foto faz apagar sem querer. */
+.foto-x{position:absolute;top:2px;right:2px;width:26px;height:26px;border:0;
+  border-radius:50%;background:rgba(0,0,0,.55);color:#fff;font-size:13px;
+  line-height:1;cursor:pointer}
+.fotos-add{display:block;min-height:44px;border:1px dashed var(--linha-borda);
+  border-radius:9px;display:flex;align-items:center;justify-content:center;
+  font-size:13px;font-weight:700;color:var(--txt2);cursor:pointer;padding:8px}
+.fotos-add:hover{border-color:var(--acento);color:var(--acento-forte);
+  background:var(--acento-suave)}
+
 /* ---- rodapé fixo de ação ---- */
 #rodape{position:fixed;left:0;right:0;bottom:0;z-index:20;padding:10px 12px;
   padding-bottom:calc(10px + env(safe-area-inset-bottom));background:var(--painel);
