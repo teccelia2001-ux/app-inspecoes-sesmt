@@ -15,9 +15,24 @@ Não há cadastro por aqui.
 ## Instalável no celular
 
 Abra o link, e no menu do navegador escolha **Adicionar à tela inicial**.
-Instalado, o app abre sem a barra de endereço e funciona sem sinal — o que o
-inspetor responde fica guardado no aparelho e sobe sozinho quando a conexão
-volta.
+Instalado, o app abre sem a barra de endereço.
+
+## Funciona sem sinal
+
+Depois de abrir **uma vez com internet**, o app trabalha inteiro no campo, offline:
+
+- o cadastro (departamentos, equipes e as perguntas já abertas) fica guardado no
+  aparelho, e é dele que o app vive quando não há rede;
+- a inspeção nasce no próprio celular, com identificador gerado ali — não espera
+  o banco para começar;
+- cada resposta é gravada na hora, no aparelho;
+- ao enviar sem sinal, a inspeção entra numa **fila** e sobe sozinha quando a
+  conexão voltar; dá para fechar a inspeção e começar outra nesse meio-tempo. A
+  etiqueta *a enviar*, na lista, mostra o que ainda não chegou ao sistema.
+
+O que continua exigindo internet: a **primeira entrada** (login) e as **fotos** —
+arquivo de imagem não cabe no armazenamento do navegador, e o app avisa em vez de
+fingir que subiu.
 
 ## O que há neste repositório
 

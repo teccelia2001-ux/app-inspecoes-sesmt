@@ -21,7 +21,7 @@ const SERVIDOR = {
    estava rodando a correção ou uma cópia guardada pelo service worker. Sem
    isso, "não funcionou" não distingue código errado de código velho.
    Subir JUNTO com a VERSAO do sw.js. */
-const VERSAO_APP = "v8 · 28/08/2026";
+const VERSAO_APP = "v9 · 08/09/2026";
 
 /* Logo em SVG para o app não depender de arquivo externo */
 const LOGO = "data:image/svg+xml;utf8," + encodeURIComponent(
@@ -75,12 +75,25 @@ const Sessao = {
   }
 };
 
+/* Erro de REDE não é erro de servidor, e o app trata os dois de forma
+   diferente: sem sinal ele guarda e segue; recusado pelo banco ele avisa.
+   Por isso todo erro de conexão sai daqui marcado com .rede = true. */
+function erroDeRede() {
+  const e = new Error("sem sinal");
+  e.rede = true;
+  return e;
+}
+const semRede = e => !!(e && e.rede) || !navigator.onLine;
+
 async function auth(caminho, corpo) {
-  const r = await fetch(SERVIDOR.url + "/auth/v1/" + caminho, {
-    method: "POST",
-    headers: { apikey: SERVIDOR.chave, "Content-Type": "application/json" },
-    body: JSON.stringify(corpo)
-  });
+  let r;
+  try {
+    r = await fetch(SERVIDOR.url + "/auth/v1/" + caminho, {
+      method: "POST",
+      headers: { apikey: SERVIDOR.chave, "Content-Type": "application/json" },
+      body: JSON.stringify(corpo)
+    });
+  } catch (e) { return { ok: false, rede: true, corpo: {} }; }
   let j = null;
   try { j = await r.json(); } catch (e) {}
   return { ok: r.ok, corpo: j || {} };
@@ -88,6 +101,8 @@ async function auth(caminho, corpo) {
 
 async function entrar(email, senha) {
   const r = await auth("token?grant_type=password", { email, password: senha });
+  if (r.rede) return { erro: "Sem sinal. A primeira entrada precisa de internet — "
+    + "depois disso o app abre e funciona no campo, mesmo sem conexão." };
   if (!r.ok || !r.corpo.access_token) {
     const m = String(r.corpo.error_description || r.corpo.msg || "").toLowerCase();
     return { erro: m.includes("invalid") ? "E-mail ou senha não conferem."
@@ -119,15 +134,18 @@ async function renovar() {
    ============================================================ */
 async function api(caminho, opcoes, jaRenovou) {
   const o = opcoes || {};
-  const r = await fetch(SERVIDOR.url + "/rest/v1/" + caminho, {
-    method: o.method || "GET",
-    headers: Object.assign({
-      apikey: SERVIDOR.chave,
-      Authorization: "Bearer " + Sessao.access,
-      "Content-Type": "application/json"
-    }, o.headers || {}),
-    body: o.body ? JSON.stringify(o.body) : undefined
-  });
+  let r;
+  try {
+    r = await fetch(SERVIDOR.url + "/rest/v1/" + caminho, {
+      method: o.method || "GET",
+      headers: Object.assign({
+        apikey: SERVIDOR.chave,
+        Authorization: "Bearer " + Sessao.access,
+        "Content-Type": "application/json"
+      }, o.headers || {}),
+      body: o.body ? JSON.stringify(o.body) : undefined
+    });
+  } catch (e) { throw erroDeRede(); }
   /* token vencido no meio do campo: renova uma vez e repete */
   if (r.status === 401 && !jaRenovou && await renovar()) return api(caminho, o, true);
   let j = null;
@@ -146,7 +164,166 @@ const App = {
   departamentos: [], equipes: [], perguntas: {},   // por departamento
   tipos: [],                                       // tipo de equipe -> departamento
   rascunho: null,                                  // inspeção em preenchimento
-  buscaEquipe: ""
+  buscaEquipe: "",
+  semSinal: false                                  // rodando com o cadastro guardado
+};
+
+/* ============================================================
+   CADASTRO GUARDADO NO APARELHO
+
+   Departamentos, equipes, tipos e perguntas mudam raramente e são
+   pequenos. Guardá-los é o que permite começar uma inspeção no meio
+   do mato: sem isto o app abria (o service worker entrega a página),
+   mas parava em "Buscando cadastros…" para sempre.
+
+   Toda vez que o app consegue falar com o servidor, a cópia é
+   refeita. Sem sinal, vale a última — e a tela diz que é ela.
+   ============================================================ */
+const CHAVE_CADASTROS = "sesmt-inspecoes.cadastros.v1";
+
+const Cadastros = {
+  ler() {
+    try { return JSON.parse(localStorage.getItem(CHAVE_CADASTROS) || "null"); }
+    catch (e) { return null; }
+  },
+  guardar() {
+    try {
+      localStorage.setItem(CHAVE_CADASTROS, JSON.stringify({
+        inspetor: Sessao.inspetor, uid: Sessao.uid,
+        departamentos: App.departamentos, equipes: App.equipes,
+        tipos: App.tipos, perguntas: App.perguntas, em: Date.now()
+      }));
+    } catch (e) { /* sem espaço: o app segue, só não abre sem sinal */ }
+  },
+  /* Só serve a cópia de quem está logado agora: dois inspetores no mesmo
+     aparelho não podem herdar o cadastro um do outro. */
+  aplicar() {
+    const c = this.ler();
+    if (!c || !c.departamentos || !c.departamentos.length) return false;
+    if (c.uid && Sessao.uid && c.uid !== Sessao.uid) return false;
+    App.departamentos = c.departamentos;
+    App.equipes = c.equipes || [];
+    App.tipos = c.tipos || [];
+    App.perguntas = c.perguntas || {};
+    Sessao.inspetor = c.inspetor || Sessao.inspetor;
+    return !!Sessao.inspetor;
+  }
+};
+
+/* Identificador criado no próprio aparelho.
+
+   A inspeção nascia com um POST no banco, e o id vinha de lá — o que
+   tornava impossível começar uma inspeção sem sinal. Agora o id é gerado
+   aqui e a linha no banco é criada quando houver conexão, com esse mesmo
+   id. É um uuid: a chance de colisão com outro aparelho é desprezível. */
+function novoId() {
+  if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, c => {
+    const r = Math.random() * 16 | 0;
+    return (c === "x" ? r : (r & 0x3 | 0x8)).toString(16);
+  });
+}
+
+/* Cria no banco a linha da inspeção, se ela ainda não existir lá.
+
+   Idempotente de propósito: pode ser chamada a cada tentativa de subida,
+   e o banco resolve a repetição pelo id (on_conflict). */
+async function garantirInspecao(R) {
+  if (!R || R.noServidor) return;
+  await api("sesmt_inspecoes?on_conflict=id", {
+    method: "POST",
+    headers: { Prefer: "resolution=merge-duplicates" },
+    body: {
+      id: R.id, departamento: R.dep.codigo, inspetor: R.inspetor || Sessao.inspetor,
+      equipe: R.equipe, data: R.data, placa: R.placa || null,
+      criada_por: R.criada_por || Sessao.uid
+    }
+  });
+  R.noServidor = true;
+}
+
+/* ============================================================
+   FILA DE ENVIO — o que o campo produziu e o servidor ainda não tem
+
+   O rascunho do aparelho guarda UMA inspeção, a que está aberta. Quem
+   termina uma inspeção sem sinal e começa outra precisa que a primeira
+   fique em algum lugar até a conexão voltar: é esta fila.
+
+   Cada item é uma inspeção inteira (respostas e desvios), com o id que
+   ela já tem. Vai para o banco na ordem, quando der, e some da fila.
+   Foto não entra aqui: arquivo não cabe no armazenamento do aparelho —
+   sem sinal, ela continua não subindo, e o app diz isso.
+   ============================================================ */
+const CHAVE_FILA = "sesmt-inspecoes.fila.v1";
+
+const Fila = {
+  enviando: false,
+
+  itens() {
+    try { return JSON.parse(localStorage.getItem(CHAVE_FILA) || "[]") || []; }
+    catch (e) { return []; }
+  },
+  gravar(lista) {
+    try { localStorage.setItem(CHAVE_FILA, JSON.stringify(lista)); return true; }
+    catch (e) { return false; }
+  },
+  achar(id) { return this.itens().find(x => x.id === id) || null; },
+
+  /* Entra na fila, ou atualiza o que já estava lá com o mesmo id. */
+  por(R, enviada) {
+    const lista = this.itens().filter(x => x.id !== R.id);
+    lista.push({
+      id: R.id, dep: R.dep, equipe: R.equipe, data: R.data, placa: R.placa || "",
+      respostas: R.respostas || {}, desvios: R.desvios || "",
+      perguntas: R.perguntas || [], noServidor: !!R.noServidor,
+      inspetor: R.inspetor || Sessao.inspetor, criada_por: R.criada_por || Sessao.uid,
+      enviada_em: enviada ? new Date().toISOString() : null, em: Date.now()
+    });
+    return this.gravar(lista);
+  },
+  tirar(id) { this.gravar(this.itens().filter(x => x.id !== id)); },
+
+  async subirUm(it) {
+    await garantirInspecao(it);
+    const linhas = Object.entries(it.respostas || {})
+      .map(([pergunta, resposta]) => ({ inspecao: it.id, pergunta, resposta }));
+    if (linhas.length) {
+      await api("sesmt_respostas?on_conflict=inspecao,pergunta", {
+        method: "POST",
+        headers: { Prefer: "resolution=merge-duplicates" },
+        body: linhas
+      });
+    }
+    /* enviada_em vai por último e junto com os desvios: inspeção marcada
+       como enviada não aceita mais alteração, pela política do banco. */
+    await api("sesmt_inspecoes?id=eq." + encodeURIComponent(it.id), {
+      method: "PATCH",
+      body: { desvios: it.desvios || null, enviada_em: it.enviada_em || null }
+    });
+    this.tirar(it.id);
+  },
+
+  /* Manda tudo o que dá. Erro de rede interrompe (não adianta insistir nos
+     outros); erro do servidor num item guarda o motivo e passa ao próximo —
+     nunca joga o item fora, que seria perder a inspeção do inspetor. */
+  async enviarTudo() {
+    if (this.enviando) return 0;
+    this.enviando = true;
+    let mandou = 0;
+    try {
+      for (const it of this.itens()) {
+        if (App.rascunho && App.rascunho.id === it.id) continue;  // ainda aberta
+        try { await this.subirUm(it); mandou++; }
+        catch (e) {
+          if (semRede(e)) break;
+          const lista = this.itens();
+          const alvo = lista.find(x => x.id === it.id);
+          if (alvo) { alvo.erro = e.message; this.gravar(lista); }
+        }
+      }
+    } finally { this.enviando = false; }
+    return mandou;
+  }
 };
 
 /* ============================================================
@@ -184,7 +361,8 @@ const Rascunho = {
     try {
       localStorage.setItem(CHAVE_RASCUNHO, JSON.stringify({
         id: R.id, dep: R.dep, equipe: R.equipe, data: R.data, placa: R.placa,
-        respostas: R.respostas, desvios: R.desvios,
+        respostas: R.respostas, desvios: R.desvios, perguntas: R.perguntas,
+        noServidor: !!R.noServidor, criada_por: R.criada_por || Sessao.uid,
         inspetor: Sessao.inspetor, em: Date.now()
       }));
     } catch (e) {
@@ -239,6 +417,9 @@ const Rascunho = {
     this.sincronizando = true;
     this.avisar();
     try {
+      /* A inspeção pode ter nascido sem sinal, só no aparelho: a linha dela
+         no banco é criada aqui, na primeira subida que der certo. */
+      await garantirInspecao(R);
       const linhas = Object.entries(R.respostas)
         .map(([pergunta, resposta]) => ({ inspecao: R.id, pergunta, resposta }));
       if (linhas.length) {
@@ -275,8 +456,21 @@ const Rascunho = {
   avisar() { if (this.aoMudarEstado) this.aoMudarEstado(this.situacao()); }
 };
 
-/* Voltou o sinal: manda o que estiver pendente, sem o inspetor pedir. */
-window.addEventListener("online", () => Rascunho.sincronizar());
+/* Voltou o sinal: manda o que estiver pendente, sem o inspetor pedir —
+   a inspeção aberta e também as que ficaram na fila. */
+window.addEventListener("online", async () => {
+  await Rascunho.sincronizar();
+  const n = await Fila.enviarTudo();
+  App.semSinal = false;
+  if (n) mostrarInicioSePuder();
+});
+window.addEventListener("offline", () => { App.semSinal = true; pintarSinal(); });
+
+/* Só redesenha a tela inicial se for ela que está aberta: no meio de uma
+   inspeção, trocar a tela por baixo do inspetor apagaria o que ele vê. */
+function mostrarInicioSePuder() {
+  if (!App.rascunho && Sessao.inspetor && document.querySelector("#deps")) telaInicio();
+}
 
 /* Saindo da tela (trocou de app, bloqueou o celular): grava agora, sem
    esperar o temporizador. É o momento em que o navegador mais mata aba. */
@@ -293,6 +487,20 @@ document.addEventListener("visibilitychange", () => {
 function topo(titulo, mostrarSair) {
   $("#tituloTopo").textContent = titulo;
   $("#btSair").classList.toggle("oculto", !mostrarSair);
+  pintarSinal();
+}
+
+/* Etiqueta de conexão no alto da tela: "sem sinal" quando não há rede, e
+   "N a enviar" quando há inspeção esperando para subir. */
+function pintarSinal() {
+  const el = $("#sinal");
+  if (!el) return;
+  const fora = !navigator.onLine || App.semSinal;
+  const n = Fila.itens().length;
+  el.classList.toggle("fila", !fora && n > 0);
+  if (fora) el.textContent = n ? "sem sinal · " + n + " a enviar" : "sem sinal";
+  else if (n) el.textContent = n + (n === 1 ? " a enviar" : " a enviar");
+  el.classList.toggle("oculto", !fora && !n);
 }
 
 /* Carimbo de versão no fim da tela. Toque nele para forçar a busca de uma
@@ -382,11 +590,24 @@ async function iniciar() {
     App.departamentos = deps;
     App.equipes = eqs;
     App.tipos = tipos;
+    App.semSinal = false;
+    Cadastros.guardar();          // é esta cópia que faz o app abrir sem sinal
+    Fila.enviarTudo().then(() => pintarSinal());
     telaInicio();
   } catch (e) {
+    /* Sem sinal, com cadastro guardado, o app trabalha igual: o que muda é
+       que a lista de inspeções vem do aparelho e o envio fica para depois. */
+    if (semRede(e) && Cadastros.aplicar()) {
+      App.semSinal = true;
+      telaInicio();
+      return;
+    }
     topo("Inspeções SESMT", true);
     tela().innerHTML = "";
-    recado(tela(), "erro", "Não deu para carregar os cadastros: " + e.message);
+    recado(tela(), "erro", semRede(e)
+      ? "Sem sinal, e este aparelho ainda não tem o cadastro guardado. "
+        + "Abra o app uma vez com internet — depois disso ele funciona no campo."
+      : "Não deu para carregar os cadastros: " + e.message);
   }
 }
 
@@ -407,6 +628,18 @@ async function telaInicio() {
      </button>`).join("");
   $("#deps").querySelectorAll(".cartao").forEach(b =>
     b.onclick = () => telaEquipe(App.departamentos.find(d => d.codigo === b.dataset.cod)));
+
+  const naFilaAgora = Fila.itens().length;
+  if (!navigator.onLine || App.semSinal) {
+    recado(tela(), "aviso",
+      "Sem sinal: o app está usando o cadastro guardado neste aparelho. "
+      + "Dá para inspecionar normalmente — só as fotos precisam de conexão"
+      + (naFilaAgora ? `. ${naFilaAgora} inspeção(ões) esperando para subir.` : "."));
+  } else if (naFilaAgora) {
+    recado(tela(), "aviso", `${naFilaAgora} inspeção(ões) ainda não chegaram ao `
+      + "sistema. Estão subindo agora — deixe o app aberto um instante.");
+    Fila.enviarTudo().then(n => { if (n) telaInicio(); });
+  }
 
   /* Sobrou rascunho no aparelho de uma sessão anterior? Aparece primeiro,
      antes de tudo: é o que o inspetor mais precisa ver ao abrir. */
@@ -432,35 +665,52 @@ async function telaInicio() {
        edita. O que o inspetor precisa ver é o que ele ainda pode retomar. A
        última enviada fica como recibo do que acabou de mandar. */
     const meu = "&inspetor=eq." + encodeURIComponent(Sessao.inspetor);
-    const [rascunhos, ultima] = await Promise.all([
-      api("sesmt_inspecoes?select=id,departamento,equipe,data,enviada_em"
-          + "&enviada_em=is.null" + meu + "&order=criada_em.desc"),
-      api("sesmt_inspecoes?select=id,departamento,equipe,data,enviada_em"
-          + "&enviada_em=not.is.null" + meu + "&order=enviada_em.desc&limit=1")
-    ]);
-    const lista = rascunhos.concat(ultima);
+    let rascunhos = [], ultima = [];
+    if (!App.semSinal && navigator.onLine) {
+      [rascunhos, ultima] = await Promise.all([
+        api("sesmt_inspecoes?select=id,departamento,equipe,data,enviada_em"
+            + "&enviada_em=is.null" + meu + "&order=criada_em.desc"),
+        api("sesmt_inspecoes?select=id,departamento,equipe,data,enviada_em"
+            + "&enviada_em=not.is.null" + meu + "&order=enviada_em.desc&limit=1")
+      ]);
+    }
+    /* O que está na fila do aparelho aparece primeiro e não pode sumir da
+       lista só porque o servidor ainda não sabe dele. Item já enviado pelo
+       inspetor entra como "a enviar": ele não deve mexer mais nisso. */
+    const naFila = Fila.itens().map(x => ({
+      id: x.id, departamento: x.dep && x.dep.codigo, equipe: x.equipe, data: x.data,
+      enviada_em: null, fila: true, jaEnviada: !!x.enviada_em
+    }));
+    const idsFila = new Set(naFila.map(x => x.id));
+    const lista = naFila.concat(rascunhos.filter(r => !idsFila.has(r.id))).concat(ultima);
     /* Sem nada para mostrar não desenha a seção — mas segue em frente:
        um return aqui pulava o carimbo de versão no fim da função. */
     if (!lista.length) { carimboVersao(tela()); return; }
     const nomeDep = c => (App.departamentos.find(d => d.codigo === c) || {}).nome || c;
+    const nRasc = naFila.filter(x => !x.jaEnviada).length + rascunhos.filter(r => !idsFila.has(r.id)).length;
+    const nEspera = naFila.filter(x => x.jaEnviada).length;
     $("#minhas").innerHTML = `<h2 style="margin-top:26px">Suas inspeções</h2>
-      <p class="sub">${rascunhos.length
-        ? `${rascunhos.length} em rascunho, que dá para retomar.`
-        : "Nenhum rascunho aberto."}${ultima.length
+      <p class="sub">${nRasc
+        ? `${nRasc} em rascunho, que dá para retomar.`
+        : "Nenhum rascunho aberto."}${nEspera
+        ? ` ${nEspera} esperando sinal para subir.` : ""}${ultima.length
         ? " Abaixo, a última que você enviou." : ""}</p>` +
-      lista.map(i => `<div class="insp-linha">
-        <button class="insp" data-id="${esc(i.id)}" ${i.enviada_em ? "disabled" : ""}>
+      lista.map(i => {
+        const espera = i.fila && i.jaEnviada;      // pronta, só falta chegar ao servidor
+        const trava = !!i.enviada_em || espera;
+        return `<div class="insp-linha">
+        <button class="insp" data-id="${esc(i.id)}" ${trava ? "disabled" : ""}>
           <span style="flex:1 1 auto">
             <b>${esc(i.equipe)}</b>
             <small>${esc(nomeDep(i.departamento))} · ${dataBR(i.data)}</small>
           </span>
-          <span class="etiq ${i.enviada_em ? "enviada" : "rascunho"}">${
-            i.enviada_em ? "enviada" : "rascunho"}</span>
+          <span class="etiq ${i.enviada_em ? "enviada" : espera ? "espera" : "rascunho"}">${
+            i.enviada_em ? "enviada" : espera ? "a enviar" : "rascunho"}</span>
         </button>
-        ${i.enviada_em ? "" : `<button class="insp-x" data-id="${esc(i.id)}"
+        ${trava ? "" : `<button class="insp-x" data-id="${esc(i.id)}"
           data-equipe="${esc(i.equipe)}" title="Excluir este rascunho"
           aria-label="Excluir o rascunho de ${esc(i.equipe)}">✕</button>`}
-      </div>`).join("");
+      </div>`; }).join("");
     $("#minhas").querySelectorAll(".insp:not([disabled])").forEach(b =>
       b.onclick = () => retomar(b.dataset.id));
     $("#minhas").querySelectorAll(".insp-x").forEach(b =>
@@ -482,6 +732,19 @@ async function excluirRascunho(id, equipe) {
   if (!confirm(`Excluir o rascunho de ${equipe}?\n\n`
       + "As respostas já dadas nele serão perdidas. Não dá para desfazer."))
     return;
+  /* Rascunho que só existe no aparelho morre aqui mesmo — pedir ao banco
+     para apagar o que ele nunca teve daria erro na cara do inspetor. */
+  const naFila = Fila.achar(id);
+  if (naFila) {
+    Fila.tirar(id);
+    const local = Rascunho.lerGuardado();
+    if (local && local.id === id) Rascunho.limpar();
+    if (!naFila.noServidor) {
+      await telaInicio();
+      recado(tela(), "ok", `Rascunho de ${equipe} excluído.`);
+      return;
+    }
+  }
   try {
     await api("sesmt_inspecoes?id=eq." + encodeURIComponent(id), { method: "DELETE" });
     /* Era este que estava guardado no aparelho? Então limpa também, senão
@@ -593,6 +856,7 @@ async function perguntasDe(codigo) {
   App.perguntas[codigo] = r
     .filter(x => x.sesmt_perguntas)
     .map(x => ({ codigo: x.sesmt_perguntas.codigo, texto: x.sesmt_perguntas.texto }));
+  Cadastros.guardar();      // guarda as perguntas junto: é o que falta para o campo
   return App.perguntas[codigo];
 }
 
@@ -602,26 +866,27 @@ async function abrirPerguntas(dep, equipe, data, placa) {
   rodape("");
   try {
     const perg = await perguntasDe(dep.codigo);
-    /* Cria o rascunho já no banco: se o celular morrer no meio do
-       mato, o que foi respondido até ali não se perde. */
-    const criada = await api("sesmt_inspecoes", {
-      method: "POST",
-      headers: { Prefer: "return=representation" },
-      body: {
-        departamento: dep.codigo, inspetor: Sessao.inspetor, equipe: equipe,
-        data: data, placa: placa || null, criada_por: Sessao.uid
-      }
-    });
+    /* A inspeção nasce no APARELHO, com id gerado aqui. A linha no banco
+       vem depois, na primeira subida com sinal — é o que permite começar
+       uma inspeção no meio do mato. O que protege as respostas continua
+       sendo a gravação local a cada toque. */
     App.rascunho = {
-      id: criada[0].id, dep: dep, equipe: equipe, data: data, placa: placa,
-      perguntas: perg, respostas: {}, desvios: ""
+      id: novoId(), dep: dep, equipe: equipe, data: data, placa: placa,
+      perguntas: perg, respostas: {}, desvios: "",
+      noServidor: false, inspetor: Sessao.inspetor, criada_por: Sessao.uid
     };
     Rascunho.guardar();
     telaPerguntas();
+    if (!navigator.onLine) recado(tela(), "aviso",
+      "Sem sinal: a inspeção está sendo gravada no aparelho e sobe sozinha "
+      + "quando a conexão voltar. Só as fotos precisam de internet na hora.");
   } catch (e) {
     topo(equipe, true);
     tela().innerHTML = "";
-    recado(tela(), "erro", "Não deu para começar a inspeção: " + e.message);
+    recado(tela(), "erro", semRede(e)
+      ? "Sem sinal, e as perguntas de " + esc(dep.nome) + " ainda não estão "
+        + "guardadas neste aparelho. Abra este departamento uma vez com internet."
+      : "Não deu para começar a inspeção: " + e.message);
     rodape(`<button class="secundario" id="btVoltar">← Voltar</button>`);
     $("#btVoltar").onclick = () => telaDados(dep, equipe);
   }
@@ -630,6 +895,28 @@ async function abrirPerguntas(dep, equipe, data, placa) {
 async function retomar(id) {
   topo("Carregando…", true);
   tela().innerHTML = `<p class="sub">Abrindo o rascunho…</p>`;
+
+  /* Rascunho que ainda está na fila do aparelho abre daqui mesmo, sem
+     perguntar ao servidor — ele é a versão mais nova que existe. */
+  const naFila = Fila.achar(id);
+  if (naFila && !naFila.enviada_em) {
+    Fila.tirar(id);
+    App.rascunho = {
+      id: naFila.id, dep: naFila.dep, equipe: naFila.equipe, data: naFila.data,
+      placa: naFila.placa || "", perguntas: naFila.perguntas || [],
+      respostas: naFila.respostas || {}, desvios: naFila.desvios || "",
+      noServidor: !!naFila.noServidor, inspetor: naFila.inspetor,
+      criada_por: naFila.criada_por
+    };
+    if (!App.rascunho.perguntas.length) {
+      try { App.rascunho.perguntas = await perguntasDe(naFila.dep.codigo); }
+      catch (e) { /* segue com o que houver */ }
+    }
+    Rascunho.guardar();
+    telaPerguntas();
+    return;
+  }
+
   try {
     const i = (await api("sesmt_inspecoes?select=*&id=eq." + encodeURIComponent(id)))[0];
     const dep = App.departamentos.find(d => d.codigo === i.departamento);
@@ -638,7 +925,8 @@ async function retomar(id) {
                            + encodeURIComponent(id));
     App.rascunho = {
       id: i.id, dep: dep, equipe: i.equipe, data: i.data, placa: i.placa || "",
-      perguntas: perg, desvios: i.desvios || "",
+      perguntas: perg, desvios: i.desvios || "", noServidor: true,
+      inspetor: Sessao.inspetor, criada_por: i.criada_por || Sessao.uid,
       respostas: Object.fromEntries(resp.map(r => [r.pergunta, r.resposta]))
     };
     /* Se o aparelho tiver uma cópia desta mesma inspeção com mais
@@ -802,6 +1090,9 @@ const Fotos = {
     const R = App.rascunho;
     if (!R) throw new Error("nenhuma inspeção aberta");
     if (!navigator.onLine) throw new Error("sem sinal — a foto precisa de conexão");
+    /* A inspeção pode ainda não existir no banco (começou sem sinal), e a
+       foto aponta para ela: cria a linha antes de subir o arquivo. */
+    await garantirInspecao(R);
 
     const menor = await this.reduzir(arquivo);
     /* Nome com hora e sorteio: duas fotos tiradas no mesmo segundo, de dois
@@ -888,9 +1179,20 @@ async function deixarComoRascunho() {
   try {
     Rascunho.guardar();
     const subiu = await Rascunho.sincronizar(true);
-    if (!subiu) throw new Error(navigator.onLine
-      ? "o servidor não respondeu"
-      : "sem sinal");
+    if (!subiu) {
+      /* Sem sinal, a inspeção vai para a FILA do aparelho e o inspetor sai
+         livre para começar outra. Antes o botão recusava sair, porque a
+         cópia local é uma só — a fila é o que resolve isso. */
+      const R = App.rascunho;
+      if (!Fila.por(R, false)) throw new Error("o aparelho está sem memória");
+      Rascunho.limpar();
+      App.rascunho = null;
+      await telaInicio();
+      recado(tela(), "aviso", `Sem sinal: a inspeção de ${esc(R.equipe)} ficou `
+        + "guardada no aparelho e sobe sozinha quando a conexão voltar. "
+        + "Dá para começar outra agora.");
+      return;
+    }
     Rascunho.limpar();        // o banco já tem: o aparelho pode largar
     App.rascunho = null;
     await telaInicio();
@@ -985,6 +1287,17 @@ async function gravar(enviar) {
     /* Sobe tudo primeiro. Marcar como enviada sem as respostas terem
        chegado deixaria no banco uma inspeção enviada e vazia. */
     const subiu = await Rascunho.sincronizar(true);
+    if (!subiu && enviar && !navigator.onLine) {
+      /* Sem sinal, ENVIAR não pode falhar: a inspeção está completa e o
+         inspetor não vai ficar no mato esperando. Ela entra na fila já
+         marcada como enviada e chega ao banco assim que houver conexão —
+         a data de envio é a de agora, não a da subida. */
+      if (!Fila.por(R, true)) throw new Error("o aparelho está sem memória");
+      Rascunho.limpar();
+      App.rascunho = null;
+      telaFim(R, true);
+      return;
+    }
     if (!subiu) throw new Error(navigator.onLine
       ? "o servidor não respondeu"
       : "sem sinal — o que você respondeu está guardado no aparelho");
@@ -1013,16 +1326,22 @@ async function gravar(enviar) {
   }
 }
 
-function telaFim(R) {
+function telaFim(R, naFila) {
   const nok = Object.values(R.respostas).filter(v => v === "nao_conforme").length;
-  topo("Enviada", true);
+  topo(naFila ? "Guardada" : "Enviada", true);
   rodape(`<button class="principal" id="btNova">Nova inspeção</button>`);
   tela().innerHTML = `
-    <h2>Inspeção enviada</h2>
+    <h2>${naFila ? "Inspeção concluída" : "Inspeção enviada"}</h2>
     <p class="sub">${esc(R.equipe)} · ${esc(R.dep.nome)} · ${dataBR(R.data)}</p>
-    <div class="recado ok">Registrada com ${R.perguntas.length} respostas${
-      nok ? " e " + nok + (nok === 1 ? " não conformidade" : " não conformidades") : ""}.
-      A partir de agora ela não muda mais — correção é com o administrador.</div>`;
+    <div class="recado ${naFila ? "aviso" : "ok"}">${naFila
+      ? `Você está sem sinal, então ela ficou guardada no aparelho com
+         ${R.perguntas.length} respostas${nok ? " e " + nok
+           + (nok === 1 ? " não conformidade" : " não conformidades") : ""}.
+         Vai sozinha para o sistema assim que a conexão voltar — pode fechar o app,
+         mas mantenha-o instalado até a etiqueta "a enviar" sumir da lista.`
+      : `Registrada com ${R.perguntas.length} respostas${nok ? " e " + nok
+           + (nok === 1 ? " não conformidade" : " não conformidades") : ""}.
+         A partir de agora ela não muda mais — correção é com o administrador.`}</div>`;
   $("#btNova").onclick = telaInicio;
 }
 
@@ -1058,11 +1377,18 @@ $("#btSair").onclick = () => { Sessao.esquecer(); telaLogin(); };
 
 (async function () {
   if (!Sessao.restaurar()) return telaLogin();
-  /* Token guardado pode ter vencido enquanto o app estava fechado */
+  /* Token guardado pode ter vencido enquanto o app estava fechado.
+
+     Falha de REDE aqui não é sessão vencida. Antes, qualquer erro caía em
+     esquecer() e o inspetor era jogado na tela de login — justo no lugar
+     onde não há sinal para entrar de novo. Agora só o servidor recusando
+     desloga; sem sinal, o app segue com o cadastro guardado. */
+  if (!navigator.onLine) { App.semSinal = true; return iniciar(); }
   try {
     await api("sesmt_departamentos?select=codigo&limit=1");
     iniciar();
   } catch (e) {
+    if (semRede(e)) { App.semSinal = true; return iniciar(); }
     Sessao.esquecer();
     telaLogin();
   }

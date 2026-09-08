@@ -67,6 +67,11 @@ h2{margin:0 0 4px;font-size:19px;font-weight:800}
 .secundario:hover{border-color:var(--acento);color:var(--acento-forte);background:var(--acento-suave)}
 
 /* ---- recados ---- */
+/* Aviso de conexão no alto: em campo o inspetor precisa saber, sem abrir nada,
+   se o que ele respondeu já saiu do aparelho. */
+.sinal{flex:0 0 auto;font-size:10px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;
+  padding:4px 8px;border-radius:99px;background:#fff6e5;color:#7a4d00;border:1px solid #f0d9a8}
+.sinal.fila{background:var(--acento-suave);color:var(--acento-forte);border-color:#f6c3b2}
 .recado{border-radius:10px;padding:11px 13px;font-size:13px;line-height:1.5;margin-bottom:14px}
 .recado.erro{background:#fdecea;color:#8e1b0a;border:1px solid #f3c4bb}
 .recado.ok{background:#e9f5ea;color:#1d5220;border:1px solid #bfdcc1}
@@ -178,6 +183,8 @@ h2{margin:0 0 4px;font-size:19px;font-weight:800}
   text-transform:uppercase;letter-spacing:.06em}
 .etiq.rascunho{background:#fff6e5;color:#7a4d00}
 .etiq.enviada{background:#e9f5ea;color:#1d5220}
+/* respondida e fechada pelo inspetor, esperando sinal para chegar ao banco */
+.etiq.espera{background:var(--acento-suave);color:var(--acento-forte)}
 /* O ✕ fica FORA do .insp: botão dentro de botão não vale em HTML, e no
    celular o dedo erraria o alvo. 44px é o mínimo que se acerta sem olhar. */
 .insp-linha{display:flex;align-items:stretch;gap:8px}
@@ -193,6 +200,7 @@ h2{margin:0 0 4px;font-size:19px;font-weight:800}
 <div id="topo">
   <img class="marca" id="logo" alt="Teccel">
   <div class="tit" id="tituloTopo">Inspeções SESMT</div>
+  <span id="sinal" class="sinal oculto" title="Sem conexão: o app segue funcionando e envia quando o sinal voltar">sem sinal</span>
   <button id="btSair" class="oculto">Sair</button>
 </div>
 <main id="tela"></main>

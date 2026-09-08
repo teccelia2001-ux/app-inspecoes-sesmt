@@ -15,7 +15,7 @@
    Chamada ao Supabase nunca é guardada em cache: resposta velha de banco seria
    pior do que erro de rede. */
 
-var VERSAO = "inspecoes-v8";   // v8: sw revalida no servidor; app se atualiza sozinho (28/08/2026)
+var VERSAO = "inspecoes-v9";   // v9: app inteiro funciona sem sinal — cadastro guardado e fila de envio (08/09/2026)
 var ESSENCIAIS = [
   "./",
   "./index.html",
