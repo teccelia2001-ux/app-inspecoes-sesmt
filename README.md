@@ -21,8 +21,9 @@ Instalado, o app abre sem a barra de endereço.
 
 Depois de abrir **uma vez com internet**, o app trabalha inteiro no campo, offline:
 
-- o cadastro (departamentos, equipes e as perguntas já abertas) fica guardado no
-  aparelho, e é dele que o app vive quando não há rede;
+- o cadastro fica guardado no aparelho — departamentos, equipes e as perguntas de
+  **todos** os departamentos, baixadas em segundo plano a cada abertura com
+  internet — e é dele que o app vive quando não há rede;
 - a inspeção nasce no próprio celular, com identificador gerado ali — não espera
   o banco para começar;
 - cada resposta é gravada na hora, no aparelho;
@@ -30,9 +31,11 @@ Depois de abrir **uma vez com internet**, o app trabalha inteiro no campo, offli
   conexão voltar; dá para fechar a inspeção e começar outra nesse meio-tempo. A
   etiqueta *a enviar*, na lista, mostra o que ainda não chegou ao sistema.
 
-O que continua exigindo internet: a **primeira entrada** (login) e as **fotos** —
-arquivo de imagem não cabe no armazenamento do navegador, e o app avisa em vez de
-fingir que subiu.
+As **fotos** também esperam no aparelho: são gravadas no IndexedDB, aparecem na
+lista com a tarja *a enviar* e só são apagadas depois que o servidor confirma.
+
+O que continua exigindo internet é a **primeira entrada** (login) — e, na primeira
+vez, uma abertura do app com sinal para guardar o cadastro.
 
 ## O que há neste repositório
 

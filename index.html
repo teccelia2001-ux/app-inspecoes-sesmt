@@ -86,6 +86,12 @@ h2{margin:0 0 4px;font-size:19px;font-weight:800}
 .cartao b{display:block;font-size:16px}
 .cartao small{color:var(--txt2);font-size:12px}
 .cartao .seta{margin-left:auto;color:var(--acento);font-weight:800}
+/* Departamento cujas perguntas ainda não foram guardadas: sem sinal ele não
+   tem como abrir, e dizer isso no cartão evita o toque que só dá erro. */
+.cartao.indisponivel{opacity:.55;border-left-color:var(--txt3);position:relative}
+.cartao.indisponivel:hover{background:var(--painel);border-color:var(--linha-borda)}
+.dep-falta{position:absolute;top:4px;right:10px;font-size:9px;font-weight:800;
+  letter-spacing:.05em;text-transform:uppercase;color:var(--txt3)}
 
 /* ---- lista de equipes com busca ---- */
 .busca{position:sticky;top:var(--topo);z-index:10;display:flex;align-items:center;gap:8px;

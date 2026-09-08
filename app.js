@@ -21,7 +21,7 @@ const SERVIDOR = {
    estava rodando a correção ou uma cópia guardada pelo service worker. Sem
    isso, "não funcionou" não distingue código errado de código velho.
    Subir JUNTO com a VERSAO do sw.js. */
-const VERSAO_APP = "v10 · 08/09/2026";
+const VERSAO_APP = "v11 · 08/09/2026";
 
 /* Logo em SVG para o app não depender de arquivo externo */
 const LOGO = "data:image/svg+xml;utf8," + encodeURIComponent(
@@ -467,6 +467,7 @@ window.addEventListener("online", async () => {
      ter no banco para poder existir. */
   await FotosLocais.enviarTudo();
   pintarSinal();
+  baixarTodasAsPerguntas();
   if (n) mostrarInicioSePuder();
 });
 window.addEventListener("offline", () => { App.semSinal = true; pintarSinal(); });
@@ -598,6 +599,7 @@ async function iniciar() {
     App.semSinal = false;
     Cadastros.guardar();          // é esta cópia que faz o app abrir sem sinal
     Fila.enviarTudo().then(() => FotosLocais.enviarTudo());
+    baixarTodasAsPerguntas();     // deixa o aparelho pronto para o campo
     telaInicio();
   } catch (e) {
     /* Sem sinal, com cadastro guardado, o app trabalha igual: o que muda é
@@ -633,6 +635,7 @@ async function telaInicio() {
      </button>`).join("");
   $("#deps").querySelectorAll(".cartao").forEach(b =>
     b.onclick = () => telaEquipe(App.departamentos.find(d => d.codigo === b.dataset.cod)));
+  marcarDepsSemPerguntas();
 
   const naFilaAgora = Fila.itens().length;
   if (!navigator.onLine || App.semSinal) {
@@ -859,8 +862,8 @@ function telaDados(dep, equipe) {
 }
 
 /* ---------- 6. Perguntas ---------- */
-async function perguntasDe(codigo) {
-  if (App.perguntas[codigo]) return App.perguntas[codigo];
+async function perguntasDe(codigo, forcar) {
+  if (App.perguntas[codigo] && !forcar) return App.perguntas[codigo];
   const r = await api("sesmt_pergunta_departamento?select=ordem,sesmt_perguntas(codigo,texto)"
                       + "&departamento=eq." + encodeURIComponent(codigo) + "&order=ordem");
   App.perguntas[codigo] = r
@@ -868,6 +871,42 @@ async function perguntasDe(codigo) {
     .map(x => ({ codigo: x.sesmt_perguntas.codigo, texto: x.sesmt_perguntas.texto }));
   Cadastros.guardar();      // guarda as perguntas junto: é o que falta para o campo
   return App.perguntas[codigo];
+}
+
+/* Baixa as perguntas de TODOS os departamentos, em segundo plano.
+
+   Antes só era guardado o departamento que o inspetor tivesse aberto com
+   internet — e no campo, ao escolher outro, o app dizia "as perguntas de DEOP
+   ainda não estão guardadas neste aparelho", que é exatamente a hora em que
+   não há como buscá-las. São poucas centenas de linhas de texto no total:
+   guardar tudo custa menos do que uma foto.
+
+   Roda solta, sem travar a tela, e a cada abertura com internet — assim
+   pergunta corrigida no banco chega ao aparelho sozinha. */
+async function baixarTodasAsPerguntas() {
+  for (const d of App.departamentos) {
+    try { await perguntasDe(d.codigo, true); }
+    catch (e) { if (semRede(e)) break; }   // sem sinal: fica para a próxima abertura
+  }
+  Cadastros.guardar();
+  if (document.querySelector("#deps")) marcarDepsSemPerguntas();
+}
+
+/* Sem sinal, departamento sem perguntas guardadas não abre — melhor dizer
+   isso no próprio cartão do que deixar tocar e bater num erro. */
+function marcarDepsSemPerguntas() {
+  const fora = !navigator.onLine || App.semSinal;
+  document.querySelectorAll("#deps .cartao").forEach(b => {
+    const falta = fora && !(App.perguntas[b.dataset.cod] || []).length;
+    b.classList.toggle("indisponivel", falta);
+    b.disabled = falta;
+    b.title = falta ? "As perguntas deste departamento ainda não estão guardadas "
+                    + "no aparelho. Abra-o uma vez com internet." : "";
+    const marca = b.querySelector(".dep-falta");
+    if (falta && !marca) b.insertAdjacentHTML("afterbegin",
+      `<span class="dep-falta">precisa de internet</span>`);
+    if (!falta && marca) marca.remove();
+  });
 }
 
 async function abrirPerguntas(dep, equipe, data, placa) {
