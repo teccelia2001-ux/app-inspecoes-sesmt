@@ -21,7 +21,7 @@ const SERVIDOR = {
    estava rodando a correção ou uma cópia guardada pelo service worker. Sem
    isso, "não funcionou" não distingue código errado de código velho.
    Subir JUNTO com a VERSAO do sw.js. */
-const VERSAO_APP = "v11 · 08/09/2026";
+const VERSAO_APP = "v12 · 08/09/2026";
 
 /* Logo em SVG para o app não depender de arquivo externo */
 const LOGO = "data:image/svg+xml;utf8," + encodeURIComponent(
@@ -285,6 +285,11 @@ const Fila = {
   tirar(id) { this.gravar(this.itens().filter(x => x.id !== id)); },
 
   async subirUm(it) {
+    /* Sem o nome do inspetor a política do banco recusa a inserção, e a
+       inspeção ficaria presa na fila tomando erro. Melhor esperar a próxima
+       rodada, quando o cadastro já tiver dito quem é. */
+    if (!it.inspetor && !Sessao.inspetor) throw erroDeRede();
+    if (!it.inspetor) it.inspetor = Sessao.inspetor;
     await garantirInspecao(it);
     const linhas = Object.entries(it.respostas || {})
       .map(([pergunta, resposta]) => ({ inspecao: it.id, pergunta, resposta }));
@@ -308,7 +313,7 @@ const Fila = {
      outros); erro do servidor num item guarda o motivo e passa ao próximo —
      nunca joga o item fora, que seria perder a inspeção do inspetor. */
   async enviarTudo() {
-    if (this.enviando) return 0;
+    if (this.enviando || !Sessao.inspetor) return 0;
     this.enviando = true;
     let mandou = 0;
     try {
@@ -364,7 +369,7 @@ const Rascunho = {
         id: R.id, dep: R.dep, equipe: R.equipe, data: R.data, placa: R.placa,
         respostas: R.respostas, desvios: R.desvios, perguntas: R.perguntas,
         noServidor: !!R.noServidor, criada_por: R.criada_por || Sessao.uid,
-        inspetor: Sessao.inspetor, em: Date.now()
+        inspetor: R.inspetor || Sessao.inspetor, em: Date.now()
       }));
     } catch (e) {
       /* Sem armazenamento (aba privada, disco cheio) o app segue
@@ -637,6 +642,13 @@ async function telaInicio() {
     b.onclick = () => telaEquipe(App.departamentos.find(d => d.codigo === b.dataset.cod)));
   marcarDepsSemPerguntas();
 
+  /* Sobrou rascunho no aparelho de uma sessão anterior? Aparece primeiro,
+     antes de tudo: é o que o inspetor mais precisa ver ao abrir. */
+  /* O resgate vem ANTES do aviso e do envio: é ele que põe na fila a inspeção
+     que só existia no aparelho, e sem essa ordem ela ficaria esperando a
+     próxima abertura para subir. */
+  const guardado = resgatarRascunhoSolto();
+
   const naFilaAgora = Fila.itens().length;
   if (!navigator.onLine || App.semSinal) {
     recado(tela(), "aviso",
@@ -646,12 +658,9 @@ async function telaInicio() {
   } else if (naFilaAgora) {
     recado(tela(), "aviso", `${naFilaAgora} inspeção(ões) ainda não chegaram ao `
       + "sistema. Estão subindo agora — deixe o app aberto um instante.");
-    Fila.enviarTudo().then(n => { if (n) telaInicio(); });
+    Fila.enviarTudo().then(n => { if (n) { FotosLocais.enviarTudo(); telaInicio(); } });
   }
 
-  /* Sobrou rascunho no aparelho de uma sessão anterior? Aparece primeiro,
-     antes de tudo: é o que o inspetor mais precisa ver ao abrir. */
-  const guardado = Rascunho.lerGuardado();
   if (guardado && guardado.inspetor === Sessao.inspetor) {
     const quando = new Date(guardado.em);
     const n = Object.keys(guardado.respostas || {}).length;
@@ -661,6 +670,7 @@ async function telaInicio() {
       + `${quando.toLocaleDateString("pt-BR")} às `
       + `${quando.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}. `
       + "Ela está na lista abaixo, como rascunho.");
+    pintarSinal();
   }
 
   /* As últimas inspeções deste inspetor, para retomar rascunho */
@@ -725,6 +735,29 @@ async function telaInicio() {
       b.onclick = () => excluirRascunho(b.dataset.id, b.dataset.equipe));
   } catch (e) { /* lista é conforto, não trava o app */ }
   carimboVersao(tela());
+}
+
+/* Inspeção que ficou só no aparelho tem de aparecer na lista.
+
+   Até a v11 ela sumia, e o relato do campo foi exatamente esse: inspeção
+   começada sem sinal, app fechado, e ao abrir com internet o rascunho tinha
+   desaparecido. O motivo: a lista da tela inicial vinha do SERVIDOR, e uma
+   inspeção criada offline ainda não existe lá. Antes da v9 isso não acontecia
+   porque a inspeção nascia com um POST — foi essa mudança que abriu o buraco.
+
+   Aqui o rascunho guardado passa para a FILA, que é o que a tela lista e o que
+   sobe sozinho quando o sinal volta. Retomar tira da fila de volta; nada é
+   apagado antes de o servidor ter as respostas.
+
+   Devolve o rascunho encontrado, para a tela poder avisar sobre ele. */
+function resgatarRascunhoSolto() {
+  const g = Rascunho.lerGuardado();
+  if (!g || !g.id) return null;
+  if (App.rascunho && App.rascunho.id === g.id) return g;   // está aberta agora
+  if (g.inspetor && Sessao.inspetor && g.inspetor !== Sessao.inspetor) return null;
+  if (!Fila.achar(g.id)) Fila.por(g, false);
+  Rascunho.limpar();          // a fila é a dona dele agora
+  return g;
 }
 
 /* Excluir rascunho — apaga do BANCO, não só do aparelho.
