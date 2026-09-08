@@ -147,6 +147,12 @@ h2{margin:0 0 4px;font-size:19px;font-weight:800}
 .foto.sem-previa::after{content:"foto";position:absolute;inset:0;display:flex;
   align-items:center;justify-content:center;font-size:11px;color:var(--txt3)}
 .foto.indo{opacity:.4}
+/* Foto já gravada no aparelho, esperando sinal. A tarja existe para o
+   inspetor não confundir "está no celular" com "chegou ao sistema". */
+.foto.esperando{border-color:var(--acento);box-shadow:0 0 0 1px var(--acento)}
+.foto-espera{position:absolute;left:0;right:0;bottom:0;padding:2px 4px;text-align:center;
+  font-size:9px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;
+  background:rgba(200,48,10,.88);color:#fff}
 /* O ✕ fica grande o bastante para o dedo, mas fora do centro da imagem:
    no celular, alvo pequeno em cima da foto faz apagar sem querer. */
 .foto-x{position:absolute;top:2px;right:2px;width:26px;height:26px;border:0;

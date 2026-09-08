@@ -21,7 +21,7 @@ const SERVIDOR = {
    estava rodando a correção ou uma cópia guardada pelo service worker. Sem
    isso, "não funcionou" não distingue código errado de código velho.
    Subir JUNTO com a VERSAO do sw.js. */
-const VERSAO_APP = "v9 · 08/09/2026";
+const VERSAO_APP = "v10 · 08/09/2026";
 
 /* Logo em SVG para o app não depender de arquivo externo */
 const LOGO = "data:image/svg+xml;utf8," + encodeURIComponent(
@@ -165,7 +165,8 @@ const App = {
   tipos: [],                                       // tipo de equipe -> departamento
   rascunho: null,                                  // inspeção em preenchimento
   buscaEquipe: "",
-  semSinal: false                                  // rodando com o cadastro guardado
+  semSinal: false,                                 // rodando com o cadastro guardado
+  fotosPendentes: 0                                // fotos gravadas aqui e ainda não enviadas
 };
 
 /* ============================================================
@@ -459,9 +460,13 @@ const Rascunho = {
 /* Voltou o sinal: manda o que estiver pendente, sem o inspetor pedir —
    a inspeção aberta e também as que ficaram na fila. */
 window.addEventListener("online", async () => {
+  App.semSinal = false;
   await Rascunho.sincronizar();
   const n = await Fila.enviarTudo();
-  App.semSinal = false;
+  /* Fotos depois das inspeções: é a linha da inspeção que a foto precisa
+     ter no banco para poder existir. */
+  await FotosLocais.enviarTudo();
+  pintarSinal();
   if (n) mostrarInicioSePuder();
 });
 window.addEventListener("offline", () => { App.semSinal = true; pintarSinal(); });
@@ -496,10 +501,10 @@ function pintarSinal() {
   const el = $("#sinal");
   if (!el) return;
   const fora = !navigator.onLine || App.semSinal;
-  const n = Fila.itens().length;
+  const n = Fila.itens().length + (App.fotosPendentes || 0);
   el.classList.toggle("fila", !fora && n > 0);
   if (fora) el.textContent = n ? "sem sinal · " + n + " a enviar" : "sem sinal";
-  else if (n) el.textContent = n + (n === 1 ? " a enviar" : " a enviar");
+  else if (n) el.textContent = n + " a enviar";
   el.classList.toggle("oculto", !fora && !n);
 }
 
@@ -592,7 +597,7 @@ async function iniciar() {
     App.tipos = tipos;
     App.semSinal = false;
     Cadastros.guardar();          // é esta cópia que faz o app abrir sem sinal
-    Fila.enviarTudo().then(() => pintarSinal());
+    Fila.enviarTudo().then(() => FotosLocais.enviarTudo());
     telaInicio();
   } catch (e) {
     /* Sem sinal, com cadastro guardado, o app trabalha igual: o que muda é
@@ -633,7 +638,7 @@ async function telaInicio() {
   if (!navigator.onLine || App.semSinal) {
     recado(tela(), "aviso",
       "Sem sinal: o app está usando o cadastro guardado neste aparelho. "
-      + "Dá para inspecionar normalmente — só as fotos precisam de conexão"
+      + "Dá para inspecionar e fotografar normalmente; tudo sobe quando a conexão voltar"
       + (naFilaAgora ? `. ${naFilaAgora} inspeção(ões) esperando para subir.` : "."));
   } else if (naFilaAgora) {
     recado(tela(), "aviso", `${naFilaAgora} inspeção(ões) ainda não chegaram ao `
@@ -734,6 +739,11 @@ async function excluirRascunho(id, equipe) {
     return;
   /* Rascunho que só existe no aparelho morre aqui mesmo — pedir ao banco
      para apagar o que ele nunca teve daria erro na cara do inspetor. */
+  /* As fotos guardadas desta inspeção vão junto: sem a inspeção, elas
+     nunca seriam aceitas pelo banco e ficariam tentando subir para sempre. */
+  for (const f of await FotosLocais.daInspecao(id)) await FotosLocais.apagar(f.id);
+  pintarSinal();
+
   const naFila = Fila.achar(id);
   if (naFila) {
     Fila.tirar(id);
@@ -879,7 +889,7 @@ async function abrirPerguntas(dep, equipe, data, placa) {
     telaPerguntas();
     if (!navigator.onLine) recado(tela(), "aviso",
       "Sem sinal: a inspeção está sendo gravada no aparelho e sobe sozinha "
-      + "quando a conexão voltar. Só as fotos precisam de internet na hora.");
+      + "quando a conexão voltar. As fotos também — ficam guardadas aqui até subirem.");
   } catch (e) {
     topo(equipe, true);
     tela().innerHTML = "";
@@ -1056,21 +1066,132 @@ function telaPerguntas() {
 
    Três decisões que valem explicação:
 
-   1. A foto sobe NA HORA, não junto com o envio. Ela não cabe no rascunho
-      do aparelho (localStorage tem alguns megabytes no total, e uma foto
-      sozinha passa disso), e segurar uma pilha delas na memória até o fim
-      da inspeção é a receita para perder tudo se o app fechar.
+   1. A foto é gravada NA HORA no depósito do aparelho e sobe assim que dá,
+      uma por uma — não fica esperando o fim da inspeção. O depósito é o
+      IndexedDB, não o localStorage: este só guarda texto e tem poucos
+      megabytes, e uma foto sozinha já o comprometeria.
 
    2. É REDUZIDA antes de subir: 1280px no maior lado, JPEG 0.7. A câmera de
       celular entrega 4 MB por foto; assim fica entre 150 e 300 KB. O plano
       gratuito tem 1 GB, então o tamanho não é detalhe — é o que decide se
       cabem 300 ou 4 mil fotos.
 
-   3. Sem sinal ela NÃO sobe, e o app diz isso. Diferente das respostas, que
-      ficam guardadas no aparelho e sobem depois, aqui não há como fingir que
-      deu certo: o arquivo não está em lugar nenhum até chegar ao servidor.
+   3. Sem sinal ela fica GUARDADA no aparelho, no IndexedDB, e sobe sozinha
+      depois — igual às respostas. Até 08/09/2026 era o contrário: sem sinal o
+      app recusava a foto, e o inspetor tinha de lembrar de tirá-la de novo com
+      internet. O arquivo só sai do aparelho depois que o servidor confirma.
    ============================================================ */
 const FOTO_LADO = 1280, FOTO_QUALIDADE = 0.7;
+
+/* ============================================================
+   FOTOS GUARDADAS NO APARELHO
+
+   O localStorage não serve para foto: guarda só texto e tem poucos
+   megabytes no total — três fotos estourariam o limite e derrubariam
+   junto o rascunho das respostas. O IndexedDB guarda o arquivo binário
+   como ele é, e com folga.
+
+   A regra é uma só: a foto SÓ é apagada daqui depois que o servidor
+   confirma. Fechar o app, reiniciar o celular ou passar o dia sem sinal
+   não a perde; ela sobe sozinha junto com a fila das inspeções.
+
+   O que ainda pode perdê-la é o inspetor desinstalar o app ou limpar os
+   dados do navegador antes de subir — por isso o app pede armazenamento
+   persistente na partida, o que impede o próprio sistema de descartar.
+   ============================================================ */
+const BD_NOME = "sesmt-inspecoes", BD_LOJA = "fotos";
+
+const FotosLocais = {
+  bd: null,
+  enviando: false,
+  aoSubir: null,        // a tela de perguntas liga aqui para se redesenhar
+
+  abrir() {
+    if (this.bd) return Promise.resolve(this.bd);
+    return new Promise((ok, falha) => {
+      if (!window.indexedDB) return falha(new Error("sem IndexedDB"));
+      const p = indexedDB.open(BD_NOME, 1);
+      p.onupgradeneeded = () => {
+        const b = p.result;
+        if (!b.objectStoreNames.contains(BD_LOJA)) {
+          const loja = b.createObjectStore(BD_LOJA, { keyPath: "id" });
+          loja.createIndex("inspecao", "inspecao", { unique: false });
+        }
+      };
+      p.onsuccess = () => { this.bd = p.result; ok(this.bd); };
+      p.onerror = () => falha(p.error || new Error("não deu para abrir o depósito"));
+    });
+  },
+
+  async operar(modo, fn) {
+    const bd = await this.abrir();
+    return new Promise((ok, falha) => {
+      const t = bd.transaction(BD_LOJA, modo);
+      const pedido = fn(t.objectStore(BD_LOJA));
+      t.oncomplete = () => ok(pedido && pedido.result);
+      t.onerror = t.onabort = () => falha(t.error || new Error("falha ao gravar a foto"));
+    });
+  },
+
+  /* Devolve false em vez de estourar: sem depósito o app tem um plano B. */
+  async guardar(reg) {
+    try {
+      await this.operar("readwrite", loja => loja.put(reg));
+      await this.contar();
+      return true;
+    } catch (e) { return false; }
+  },
+  async todas() {
+    try { return (await this.operar("readonly", loja => loja.getAll())) || []; }
+    catch (e) { return []; }
+  },
+  async daInspecao(id) {
+    return (await this.todas()).filter(f => f.inspecao === id);
+  },
+  async apagar(id) {
+    try { await this.operar("readwrite", loja => loja.delete(id)); } catch (e) {}
+    App.fotosPendentes = Math.max(0, (App.fotosPendentes || 1) - 1);
+  },
+  /* Mantém à mão quantas estão esperando: a etiqueta do topo é desenhada
+     em cima disso, e ler o IndexedDB a cada pintura seria exagero. */
+  async contar() {
+    App.fotosPendentes = (await this.todas()).length;
+    pintarSinal();
+    return App.fotosPendentes;
+  },
+
+  /* Manda o que dá, na ordem em que foi tirada. Cada foto só sai do
+     aparelho depois que a linha dela existe no banco. */
+  async enviarTudo() {
+    if (this.enviando || !navigator.onLine) return 0;
+    this.enviando = true;
+    let mandou = 0;
+    try {
+      const lista = (await this.todas()).sort((a, b) => a.em - b.em);
+      for (const f of lista) {
+        try {
+          /* A inspeção da foto pode ainda não existir no banco. Se é a que
+             está aberta, cria agora; se está na fila, a fila cria — e aí
+             esta foto fica para a próxima rodada, sem se perder. */
+          if (App.rascunho && App.rascunho.id === f.inspecao) await garantirInspecao(App.rascunho);
+          else if (Fila.achar(f.inspecao)) continue;
+          await Fotos.subir(f.blob, f.tipo, f.inspecao, f.nome);
+          await this.apagar(f.id);
+          mandou++;
+        } catch (e) {
+          if (semRede(e)) break;      // sem sinal: as outras também não vão
+          /* Recusa do servidor não apaga a foto: ela fica para a próxima
+             tentativa. Pior do que insistir é jogar fora o que o inspetor
+             não tem como tirar de novo. */
+        }
+      }
+    } finally { this.enviando = false; }
+    await this.contar();
+    if (mandou && this.aoSubir) { try { await this.aoSubir(); } catch (e) {} }
+    return mandou;
+  }
+};
+
 
 const Fotos = {
   /* Reduz no próprio aparelho. Sem isso o inspetor gasta o pacote de dados
@@ -1086,30 +1207,26 @@ const Fotos = {
     return new Promise(ok => cv.toBlob(ok, "image/jpeg", FOTO_QUALIDADE));
   },
 
-  async enviar(arquivo, tipo) {
-    const R = App.rascunho;
-    if (!R) throw new Error("nenhuma inspeção aberta");
-    if (!navigator.onLine) throw new Error("sem sinal — a foto precisa de conexão");
-    /* A inspeção pode ainda não existir no banco (começou sem sinal), e a
-       foto aponta para ela: cria a linha antes de subir o arquivo. */
-    await garantirInspecao(R);
-
-    const menor = await this.reduzir(arquivo);
-    /* Nome com hora e sorteio: duas fotos tiradas no mesmo segundo, de dois
-       aparelhos, não podem se sobrescrever. */
-    const nome = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.jpg`;
-    const caminho = `${R.id}/${nome}`;
-
-    const r = await fetch(`${SERVIDOR.url}/storage/v1/object/inspecoes/${caminho}`, {
-      method: "POST",
-      headers: {
-        apikey: SERVIDOR.chave,
-        Authorization: "Bearer " + Sessao.access,
-        "Content-Type": "image/jpeg"
-      },
-      body: menor
-    });
-    if (!r.ok) {
+  /* Sobe um arquivo já reduzido. Separado de enviar() porque a fila também
+     usa isto, muito depois, para as fotos que ficaram no aparelho. */
+  async subir(blob, tipo, inspecao, nome) {
+    const caminho = `${inspecao}/${nome}`;
+    let r;
+    try {
+      r = await fetch(`${SERVIDOR.url}/storage/v1/object/inspecoes/${caminho}`, {
+        method: "POST",
+        headers: {
+          apikey: SERVIDOR.chave,
+          Authorization: "Bearer " + Sessao.access,
+          "Content-Type": "image/jpeg"
+        },
+        body: blob
+      });
+    } catch (e) { throw erroDeRede(); }
+    /* 409 é "esse arquivo já existe": acontece quando a subida anterior
+       chegou ao Storage e caiu antes de gravar a linha. Não é erro — segue
+       para a linha, que é o que liga a foto à inspeção. */
+    if (!r.ok && r.status !== 409) {
       let d = ""; try { d = (await r.json()).message || ""; } catch (e) {}
       throw new Error(d || `o servidor recusou o arquivo (${r.status})`);
     }
@@ -1119,9 +1236,37 @@ const Fotos = {
     const [linha] = await api("sesmt_fotos", {
       method: "POST",
       headers: { Prefer: "return=representation" },
-      body: { inspecao: R.id, tipo, caminho }
+      body: { inspecao, tipo, caminho }
     });
     return linha;
+  },
+
+  /* Guarda no aparelho e sobe. Nunca o contrário: enquanto o servidor não
+     confirmar, a foto continua gravada aqui — é isso que impede a foto de
+     se perder no caminho. */
+  async enviar(arquivo, tipo) {
+    const R = App.rascunho;
+    if (!R) throw new Error("nenhuma inspeção aberta");
+
+    const menor = await this.reduzir(arquivo);
+    /* Nome com hora e sorteio: duas fotos tiradas no mesmo segundo, de dois
+       aparelhos, não podem se sobrescrever. E o nome é decidido AGORA, não
+       na hora de subir: assim uma tentativa que falhou no meio não deixa
+       duas cópias do mesmo arquivo no Storage. */
+    const nome = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.jpg`;
+    const guardada = await FotosLocais.guardar({
+      id: novoId(), inspecao: R.id, tipo, nome, blob: menor, em: Date.now()
+    });
+    if (!guardada) {
+      /* Sem IndexedDB (aba privada de alguns navegadores) volta ao jeito
+         antigo: ou sobe agora, ou avisa que não deu. */
+      if (!navigator.onLine) throw new Error("sem sinal, e este navegador não deixa guardar a foto");
+      await garantirInspecao(R);
+      return this.subir(menor, tipo, R.id, nome);
+    }
+    pintarSinal();
+    if (navigator.onLine) await FotosLocais.enviarTudo();
+    return null;
   },
 
   /* O bucket é privado: para mostrar a miniatura é preciso pedir uma URL
@@ -1152,6 +1297,9 @@ const Fotos = {
   },
 
   async apagar(foto) {
+    /* Foto que ainda está no aparelho não tem arquivo no servidor para
+       apagar: sai só do depósito local. */
+    if (!foto.caminho) return FotosLocais.apagar(foto.id);
     await fetch(`${SERVIDOR.url}/storage/v1/object/inspecoes/${foto.caminho}`, {
       method: "DELETE",
       headers: { apikey: SERVIDOR.chave, Authorization: "Bearer " + Sessao.access }
@@ -1215,14 +1363,43 @@ function ligarFotos() {
   const grupos = [...document.querySelectorAll(".fotos-grupo")];
   if (!grupos.length) return;
 
+  /* Duas origens na mesma lista: as que já estão no servidor e as que ainda
+     esperam no aparelho. Para o inspetor é uma lista só — a diferença é a
+     etiqueta "a enviar", que some quando a foto chega ao sistema. */
   const desenhar = async () => {
     let fotos = [];
     try { fotos = await Fotos.listar(); }
     catch (e) { /* lista é conforto; sem ela ainda dá para adicionar */ }
+    const locais = App.rascunho ? await FotosLocais.daInspecao(App.rascunho.id) : [];
     grupos.forEach(g => {
       const lista = g.querySelector(".fotos-lista");
       const minhas = fotos.filter(f => f.tipo === g.dataset.tipo);
-      lista.innerHTML = minhas.length ? "" : `<span class="fotos-vazio">nenhuma foto</span>`;
+      const daqui = locais.filter(f => f.tipo === g.dataset.tipo);
+      lista.innerHTML = (minhas.length + daqui.length) ? ""
+        : `<span class="fotos-vazio">nenhuma foto</span>`;
+
+      daqui.forEach(f => {
+        const d = document.createElement("div");
+        d.className = "foto esperando";
+        d.innerHTML = `<img alt="foto da inspeção guardada no aparelho">
+          <span class="foto-espera">a enviar</span>
+          <button type="button" class="foto-x" aria-label="Remover foto">✕</button>`;
+        lista.appendChild(d);
+        /* A prévia sai do próprio arquivo guardado: não custa rede nenhuma.
+           O endereço temporário é liberado quando a imagem carrega. */
+        const url = URL.createObjectURL(f.blob);
+        const img = d.querySelector("img");
+        img.onload = () => URL.revokeObjectURL(url);
+        img.src = url;
+        d.querySelector(".foto-x").onclick = async () => {
+          if (!confirm("Remover esta foto? Ela ainda não foi enviada, e não dá para desfazer."))
+            return;
+          d.classList.add("indo");
+          await FotosLocais.apagar(f.id);
+          await desenhar();
+        };
+      });
+
       minhas.forEach(f => {
         const d = document.createElement("div");
         d.className = "foto";
@@ -1241,6 +1418,8 @@ function ligarFotos() {
       });
     });
   };
+  /* A tela se redesenha quando uma foto guardada consegue subir. */
+  FotosLocais.aoSubir = desenhar;
 
   /* DOIS campos por grupo, e não um só com capture="environment".
 
@@ -1258,11 +1437,11 @@ function ligarFotos() {
       if (!arquivos.length) return;
       for (let i = 0; i < arquivos.length; i++) {
         bt.textContent = arquivos.length > 1
-          ? `Enviando ${i + 1} de ${arquivos.length}…` : "Enviando…";
+          ? `Guardando ${i + 1} de ${arquivos.length}…` : "Guardando…";
         try {
           await Fotos.enviar(arquivos[i], g.dataset.tipo);
         } catch (e) {
-          recado(tela(), "erro", "Não deu para enviar a foto: " + e.message
+          recado(tela(), "erro", "Não deu para guardar a foto: " + e.message
             + ". As respostas continuam guardadas.");
           break;
         }
@@ -1343,6 +1522,15 @@ function telaFim(R, naFila) {
            + (nok === 1 ? " não conformidade" : " não conformidades") : ""}.
          A partir de agora ela não muda mais — correção é com o administrador.`}</div>`;
   $("#btNova").onclick = telaInicio;
+
+  /* Fotos desta inspeção que ainda não subiram: o inspetor precisa saber
+     que elas estão guardadas, e que o app tem de continuar instalado. */
+  FotosLocais.daInspecao(R.id).then(fs => {
+    if (!fs.length || !$("#btNova")) return;
+    recado(tela(), "aviso", `${fs.length} ${fs.length === 1 ? "foto guardada" : "fotos guardadas"} `
+      + "no aparelho, esperando sinal. Elas sobem sozinhas quando a conexão voltar — "
+      + "mantenha o app instalado até lá.");
+  });
 }
 
 /* ============================================================
@@ -1372,6 +1560,15 @@ if ("serviceWorker" in navigator) {
       .then(reg => reg.update())
       .catch(() => {}));
 }
+/* Armazenamento persistente: sem isto o navegador pode descartar o depósito
+   sozinho quando o celular ficar sem espaço — justamente com a foto dentro.
+   Concedido ou não, o app funciona; com ele, funciona mais seguro. */
+if (navigator.storage && navigator.storage.persist) {
+  navigator.storage.persisted().then(ja => { if (!ja) navigator.storage.persist(); })
+    .catch(() => {});
+}
+FotosLocais.contar();
+
 $("#logo").src = LOGO;
 $("#btSair").onclick = () => { Sessao.esquecer(); telaLogin(); };
 
