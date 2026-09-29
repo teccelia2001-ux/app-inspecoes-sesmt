@@ -237,6 +237,7 @@ async function garantirInspecao(R) {
     body: {
       id: R.id, departamento: R.dep.codigo, inspetor: R.inspetor || Sessao.inspetor,
       equipe: R.equipe, data: R.data, placa: R.placa || null,
+      numero_obra: R.numeroObra || null,
       criada_por: R.criada_por || Sessao.uid
     }
   });
@@ -275,6 +276,7 @@ const Fila = {
     const lista = this.itens().filter(x => x.id !== R.id);
     lista.push({
       id: R.id, dep: R.dep, equipe: R.equipe, data: R.data, placa: R.placa || "",
+      numeroObra: R.numeroObra || "",
       respostas: R.respostas || {}, desvios: R.desvios || "",
       perguntas: R.perguntas || [], noServidor: !!R.noServidor,
       inspetor: R.inspetor || Sessao.inspetor, criada_por: R.criada_por || Sessao.uid,
@@ -367,6 +369,7 @@ const Rascunho = {
     try {
       localStorage.setItem(CHAVE_RASCUNHO, JSON.stringify({
         id: R.id, dep: R.dep, equipe: R.equipe, data: R.data, placa: R.placa,
+        numeroObra: R.numeroObra || "",
         respostas: R.respostas, desvios: R.desvios, perguntas: R.perguntas,
         noServidor: !!R.noServidor, criada_por: R.criada_por || Sessao.uid,
         inspetor: R.inspetor || Sessao.inspetor, em: Date.now()
@@ -867,6 +870,13 @@ function telaEquipe(dep) {
   $("#btVoltar").onclick = telaInicio;
 }
 
+/* Equipes de linha viva e C&M acompanham uma obra — as demais não têm
+   esse número, então o campo só aparece para elas, e sempre opcional. */
+const EQUIPES_COM_OBRA = ["DCMD C&M", "DCMD LINHA VIVA"];
+function precisaObra(equipe) {
+  return EQUIPES_COM_OBRA.some(e => e.toUpperCase() === (equipe || "").toUpperCase());
+}
+
 /* ---------- 5. Dados da inspeção ---------- */
 function telaDados(dep, equipe) {
   topo(equipe, true);
@@ -879,7 +889,9 @@ function telaDados(dep, equipe) {
       <input type="date" id="dt" value="${hoje()}" max="${hoje()}"></label>
     <label class="campo"><span>Placa do veículo</span>
       <input type="text" id="pl" placeholder="AAA1A11" maxlength="8"
-             autocapitalize="characters" spellcheck="false"></label>`;
+             autocapitalize="characters" spellcheck="false"></label>
+    ${precisaObra(equipe) ? `<label class="campo"><span>Número da obra (opcional)</span>
+      <input type="text" id="ob" placeholder="Número da obra"></label>` : ""}`;
 
   /* A placa vinha suja do Google Forms: "QFD8E92", "QFD8E92 " e
      "Qfd5j42" contavam como três. Aqui normaliza na digitação. */
@@ -890,7 +902,8 @@ function telaDados(dep, equipe) {
   $("#btIr").onclick = async () => {
     const dt = $("#dt").value;
     if (!dt) return recado(tela(), "erro", "Escolha a data da inspeção.");
-    await abrirPerguntas(dep, equipe, dt, $("#pl").value.trim());
+    const ob = $("#ob");
+    await abrirPerguntas(dep, equipe, dt, $("#pl").value.trim(), ob ? ob.value.trim() : "");
   };
 }
 
@@ -942,7 +955,7 @@ function marcarDepsSemPerguntas() {
   });
 }
 
-async function abrirPerguntas(dep, equipe, data, placa) {
+async function abrirPerguntas(dep, equipe, data, placa, numeroObra) {
   topo("Carregando…", true);
   tela().innerHTML = `<p class="sub">Buscando as perguntas de ${esc(dep.nome)}…</p>`;
   rodape("");
@@ -954,6 +967,7 @@ async function abrirPerguntas(dep, equipe, data, placa) {
        sendo a gravação local a cada toque. */
     App.rascunho = {
       id: novoId(), dep: dep, equipe: equipe, data: data, placa: placa,
+      numeroObra: numeroObra || "",
       perguntas: perg, respostas: {}, desvios: "",
       noServidor: false, inspetor: Sessao.inspetor, criada_por: Sessao.uid
     };
@@ -985,7 +999,8 @@ async function retomar(id) {
     Fila.tirar(id);
     App.rascunho = {
       id: naFila.id, dep: naFila.dep, equipe: naFila.equipe, data: naFila.data,
-      placa: naFila.placa || "", perguntas: naFila.perguntas || [],
+      placa: naFila.placa || "", numeroObra: naFila.numeroObra || "",
+      perguntas: naFila.perguntas || [],
       respostas: naFila.respostas || {}, desvios: naFila.desvios || "",
       noServidor: !!naFila.noServidor, inspetor: naFila.inspetor,
       criada_por: naFila.criada_por
@@ -1007,6 +1022,7 @@ async function retomar(id) {
                            + encodeURIComponent(id));
     App.rascunho = {
       id: i.id, dep: dep, equipe: i.equipe, data: i.data, placa: i.placa || "",
+      numeroObra: i.numero_obra || "",
       perguntas: perg, desvios: i.desvios || "", noServidor: true,
       inspetor: Sessao.inspetor, criada_por: i.criada_por || Sessao.uid,
       respostas: Object.fromEntries(resp.map(r => [r.pergunta, r.resposta]))
@@ -1021,6 +1037,7 @@ async function retomar(id) {
       if (nLocal >= nServidor) {
         App.rascunho.respostas = local.respostas || {};
         App.rascunho.desvios = local.desvios || App.rascunho.desvios;
+        App.rascunho.numeroObra = local.numeroObra || App.rascunho.numeroObra;
         Rascunho.pendente = nLocal > nServidor;
       }
     }
