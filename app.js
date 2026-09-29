@@ -21,7 +21,7 @@ const SERVIDOR = {
    estava rodando a correção ou uma cópia guardada pelo service worker. Sem
    isso, "não funcionou" não distingue código errado de código velho.
    Subir JUNTO com a VERSAO do sw.js. */
-const VERSAO_APP = "v14 · 29/09/2026";
+const VERSAO_APP = "v15 · 29/09/2026";
 
 /* Logo em SVG para o app não depender de arquivo externo */
 const LOGO = "data:image/svg+xml;utf8," + encodeURIComponent(
@@ -870,12 +870,14 @@ function telaEquipe(dep) {
   $("#btVoltar").onclick = telaInicio;
 }
 
-/* Equipes de linha viva e C&M acompanham uma obra — as demais não têm
-   esse número, então o campo só aparece para elas, e sempre opcional.
-   Comparação tolerante (maiúsculas, sem acento, sem espaço extra) porque
-   o nome exato da equipe é quem o banco cadastrou, não uma constante daqui. */
-function precisaObra(equipe) {
-  const e = (equipe || "").toUpperCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+/* Equipes dos departamentos de linha viva e C&M acompanham uma obra — as
+   demais não têm esse número, então o campo só aparece para elas, e sempre
+   opcional. É o DEPARTAMENTO (ex.: "DCMD C&M") que carrega esse nome, não
+   a equipe em si (ex.: "CNT 01"). Comparação tolerante (maiúsculas, sem
+   acento, sem espaço extra) porque o nome exato é quem o banco cadastrou,
+   não uma constante daqui. */
+function precisaObra(dep) {
+  const e = (dep && dep.nome || "").toUpperCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
   return e.includes("LINHA VIVA") || e.replace(/\s+/g, "").includes("C&M");
 }
 
@@ -892,7 +894,7 @@ function telaDados(dep, equipe) {
     <label class="campo"><span>Placa do veículo</span>
       <input type="text" id="pl" placeholder="AAA1A11" maxlength="8"
              autocapitalize="characters" spellcheck="false"></label>
-    ${precisaObra(equipe) ? `<label class="campo"><span>Número da obra (opcional)</span>
+    ${precisaObra(dep) ? `<label class="campo"><span>Número da obra (opcional)</span>
       <input type="text" id="ob" inputmode="numeric" placeholder="0000000000" maxlength="10"></label>` : ""}`;
 
   /* A placa vinha suja do Google Forms: "QFD8E92", "QFD8E92 " e
