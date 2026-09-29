@@ -21,7 +21,7 @@ const SERVIDOR = {
    estava rodando a correção ou uma cópia guardada pelo service worker. Sem
    isso, "não funcionou" não distingue código errado de código velho.
    Subir JUNTO com a VERSAO do sw.js. */
-const VERSAO_APP = "v12 · 08/09/2026";
+const VERSAO_APP = "v13 · 29/09/2026";
 
 /* Logo em SVG para o app não depender de arquivo externo */
 const LOGO = "data:image/svg+xml;utf8," + encodeURIComponent(

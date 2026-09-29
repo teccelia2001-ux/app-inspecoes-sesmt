@@ -15,7 +15,7 @@
    Chamada ao Supabase nunca é guardada em cache: resposta velha de banco seria
    pior do que erro de rede. */
 
-var VERSAO = "inspecoes-v12";  // v12: rascunho nascido sem sinal não some mais da lista (08/09/2026)
+var VERSAO = "inspecoes-v13";  // v13: número da obra (opcional) para DCMD C&M e DCMD LINHA VIVA (29/09/2026)
 var ESSENCIAIS = [
   "./",
   "./index.html",
