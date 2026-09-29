@@ -15,7 +15,7 @@
    Chamada ao Supabase nunca é guardada em cache: resposta velha de banco seria
    pior do que erro de rede. */
 
-var VERSAO = "inspecoes-v14";  // v14: corrige detecção da equipe e número da obra só com dígitos (29/09/2026)
+var VERSAO = "inspecoes-v15";  // v15: número da obra depende do departamento (DCMD C&M/LINHA VIVA), não da equipe (29/09/2026)
 var ESSENCIAIS = [
   "./",
   "./index.html",
