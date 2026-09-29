@@ -21,7 +21,7 @@ const SERVIDOR = {
    estava rodando a correção ou uma cópia guardada pelo service worker. Sem
    isso, "não funcionou" não distingue código errado de código velho.
    Subir JUNTO com a VERSAO do sw.js. */
-const VERSAO_APP = "v13 · 29/09/2026";
+const VERSAO_APP = "v14 · 29/09/2026";
 
 /* Logo em SVG para o app não depender de arquivo externo */
 const LOGO = "data:image/svg+xml;utf8," + encodeURIComponent(
@@ -871,10 +871,12 @@ function telaEquipe(dep) {
 }
 
 /* Equipes de linha viva e C&M acompanham uma obra — as demais não têm
-   esse número, então o campo só aparece para elas, e sempre opcional. */
-const EQUIPES_COM_OBRA = ["DCMD C&M", "DCMD LINHA VIVA"];
+   esse número, então o campo só aparece para elas, e sempre opcional.
+   Comparação tolerante (maiúsculas, sem acento, sem espaço extra) porque
+   o nome exato da equipe é quem o banco cadastrou, não uma constante daqui. */
 function precisaObra(equipe) {
-  return EQUIPES_COM_OBRA.some(e => e.toUpperCase() === (equipe || "").toUpperCase());
+  const e = (equipe || "").toUpperCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+  return e.includes("LINHA VIVA") || e.replace(/\s+/g, "").includes("C&M");
 }
 
 /* ---------- 5. Dados da inspeção ---------- */
@@ -891,12 +893,17 @@ function telaDados(dep, equipe) {
       <input type="text" id="pl" placeholder="AAA1A11" maxlength="8"
              autocapitalize="characters" spellcheck="false"></label>
     ${precisaObra(equipe) ? `<label class="campo"><span>Número da obra (opcional)</span>
-      <input type="text" id="ob" placeholder="Número da obra"></label>` : ""}`;
+      <input type="text" id="ob" inputmode="numeric" placeholder="0000000000" maxlength="10"></label>` : ""}`;
 
   /* A placa vinha suja do Google Forms: "QFD8E92", "QFD8E92 " e
      "Qfd5j42" contavam como três. Aqui normaliza na digitação. */
   $("#pl").oninput = ev => {
     ev.target.value = ev.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 7);
+  };
+  /* Número da obra: só dígito, padrão de 10 dígitos. */
+  const obCampo = $("#ob");
+  if (obCampo) obCampo.oninput = ev => {
+    ev.target.value = ev.target.value.replace(/\D/g, "").slice(0, 10);
   };
   $("#btVoltar").onclick = () => telaEquipe(dep);
   $("#btIr").onclick = async () => {
