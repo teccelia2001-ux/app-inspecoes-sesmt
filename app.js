@@ -21,7 +21,7 @@ const SERVIDOR = {
    estava rodando a correção ou uma cópia guardada pelo service worker. Sem
    isso, "não funcionou" não distingue código errado de código velho.
    Subir JUNTO com a VERSAO do sw.js. */
-const VERSAO_APP = "v15 · 29/09/2026";
+const VERSAO_APP = "v16 · 19/10/2026";
 
 /* Logo em SVG para o app não depender de arquivo externo */
 const LOGO = "data:image/svg+xml;utf8," + encodeURIComponent(
@@ -85,10 +85,37 @@ function erroDeRede() {
 }
 const semRede = e => !!(e && e.rede) || !navigator.onLine;
 
+/* DESISTIR DA REDE TEM HORA (19/10/2026).
+
+   fetch não desiste sozinho. No modo avião navigator.onLine é false e o app
+   já caía direto no cadastro guardado — mas em campo o normal é outro: o
+   celular fica "conectado" numa antena sem dados, ou num Wi-Fi que conecta
+   e não navega. Aí onLine é TRUE, a chamada fica pendurada sem erro e sem
+   resposta, e o app parava em "Buscando cadastros…" para sempre. Era isso o
+   "não abre sem sinal": ele não deixava de abrir, ele não desistia de abrir.
+
+   Com prazo, a chamada vira erro de rede — o mesmo que o app já sabe tratar
+   desde sempre, seguindo com a cópia guardada no aparelho.
+
+   A partida espera menos que o resto: ali o app só confere se a sessão
+   ainda vale, e quem está em campo precisa da tela, não da conferência. */
+const ESPERA_REDE = 20000;
+const ESPERA_PARTIDA = 6000;
+
+/* AbortController existe em tudo que roda o app hoje; se faltar, segue sem
+   prazo — melhor sem rede de segurança do que sem app. */
+function fetchComPrazo(url, opcoes, prazo) {
+  if (typeof AbortController === "undefined") return fetch(url, opcoes);
+  const ctl = new AbortController();
+  const t = setTimeout(() => ctl.abort(), prazo || ESPERA_REDE);
+  return fetch(url, Object.assign({}, opcoes, { signal: ctl.signal }))
+    .finally(() => clearTimeout(t));
+}
+
 async function auth(caminho, corpo) {
   let r;
   try {
-    r = await fetch(SERVIDOR.url + "/auth/v1/" + caminho, {
+    r = await fetchComPrazo(SERVIDOR.url + "/auth/v1/" + caminho, {
       method: "POST",
       headers: { apikey: SERVIDOR.chave, "Content-Type": "application/json" },
       body: JSON.stringify(corpo)
@@ -136,7 +163,7 @@ async function api(caminho, opcoes, jaRenovou) {
   const o = opcoes || {};
   let r;
   try {
-    r = await fetch(SERVIDOR.url + "/rest/v1/" + caminho, {
+    r = await fetchComPrazo(SERVIDOR.url + "/rest/v1/" + caminho, {
       method: o.method || "GET",
       headers: Object.assign({
         apikey: SERVIDOR.chave,
@@ -144,7 +171,7 @@ async function api(caminho, opcoes, jaRenovou) {
         "Content-Type": "application/json"
       }, o.headers || {}),
       body: o.body ? JSON.stringify(o.body) : undefined
-    });
+    }, o.prazo);
   } catch (e) { throw erroDeRede(); }
   /* token vencido no meio do campo: renova uma vez e repete */
   if (r.status === 401 && !jaRenovou && await renovar()) return api(caminho, o, true);
@@ -581,11 +608,15 @@ async function iniciar() {
   topo("Carregando…", true);
   tela().innerHTML = `<p class="sub">Buscando cadastros…</p>`;
   rodape("");
+  /* A partida já tentou falar com o servidor e não conseguiu? Então aqui a
+     espera é curta: insistir 20 segundos por chamada só atrasa a tela que o
+     inspetor já pode usar com o cadastro guardado. */
+  const prazo = App.semSinal ? ESPERA_PARTIDA : undefined;
   try {
     /* Quem é este inspetor? Vem do cadastro pelo user_id, nunca do
        aparelho — foi digitar o nome à mão que criou "Arisleudo". */
     const eu = await api("sesmt_inspetores?select=inspetor,polo,funcao&user_id=eq."
-                         + encodeURIComponent(Sessao.uid) + "&ativo=is.true");
+                         + encodeURIComponent(Sessao.uid) + "&ativo=is.true", { prazo });
     if (!eu.length) {
       topo("Inspeções SESMT", true);
       tela().innerHTML = "";
@@ -597,9 +628,9 @@ async function iniciar() {
     Sessao.inspetor = eu[0].inspetor;
 
     const [deps, eqs, tipos] = await Promise.all([
-      api("sesmt_departamentos?select=codigo,nome&ativo=is.true&order=ordem"),
-      api("sesmt_equipes?select=equipe,tipo,supervisor&order=equipe"),
-      api("sesmt_tipos_equipe?select=tipo,nome,departamento&order=ordem")
+      api("sesmt_departamentos?select=codigo,nome&ativo=is.true&order=ordem", { prazo }),
+      api("sesmt_equipes?select=equipe,tipo,supervisor&order=equipe", { prazo }),
+      api("sesmt_tipos_equipe?select=tipo,nome,departamento&order=ordem", { prazo })
     ]);
     App.departamentos = deps;
     App.equipes = eqs;
@@ -1680,7 +1711,7 @@ $("#btSair").onclick = () => { Sessao.esquecer(); telaLogin(); };
      desloga; sem sinal, o app segue com o cadastro guardado. */
   if (!navigator.onLine) { App.semSinal = true; return iniciar(); }
   try {
-    await api("sesmt_departamentos?select=codigo&limit=1");
+    await api("sesmt_departamentos?select=codigo&limit=1", { prazo: ESPERA_PARTIDA });
     iniciar();
   } catch (e) {
     if (semRede(e)) { App.semSinal = true; return iniciar(); }
