@@ -21,7 +21,7 @@ const SERVIDOR = {
    estava rodando a correção ou uma cópia guardada pelo service worker. Sem
    isso, "não funcionou" não distingue código errado de código velho.
    Subir JUNTO com a VERSAO do sw.js. */
-const VERSAO_APP = "v16 · 19/10/2026";
+const VERSAO_APP = "v17 · 20/10/2026";
 
 /* Logo em SVG para o app não depender de arquivo externo */
 const LOGO = "data:image/svg+xml;utf8," + encodeURIComponent(
@@ -1001,6 +1001,19 @@ async function abrirPerguntas(dep, equipe, data, placa, numeroObra) {
   rodape("");
   try {
     const perg = await perguntasDe(dep.codigo);
+    /* Departamento recém-criado ainda sem checklist (o DESC nasceu assim,
+       em 20/10/2026). Sem isto o inspetor abriria uma inspeção de zero
+       pergunta, respondia nada e mandava — e a inspeção vazia entraria na
+       conta do painel como se tivesse sido feita. */
+    if (!perg.length) {
+      topo(equipe, true);
+      tela().innerHTML = "";
+      recado(tela(), "aviso", "O departamento " + esc(dep.nome) + " ainda não tem "
+        + "perguntas cadastradas. Fale com o SESMT antes de inspecionar por aqui.");
+      rodape(`<button class="secundario" id="btVoltar">← Voltar</button>`);
+      $("#btVoltar").onclick = () => telaDados(dep, equipe);
+      return;
+    }
     /* A inspeção nasce no APARELHO, com id gerado aqui. A linha no banco
        vem depois, na primeira subida com sinal — é o que permite começar
        uma inspeção no meio do mato. O que protege as respostas continua

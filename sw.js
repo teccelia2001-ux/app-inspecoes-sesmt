@@ -15,7 +15,7 @@
    Chamada ao Supabase nunca é guardada em cache: resposta velha de banco seria
    pior do que erro de rede. */
 
-var VERSAO = "inspecoes-v16";  // v16: rede com prazo — sem sinal o app desiste e abre com o cadastro guardado (19/10/2026)
+var VERSAO = "inspecoes-v17";  // v17: departamento sem perguntas não abre inspeção vazia (20/10/2026)
 var ESSENCIAIS = [
   "./",
   "./index.html",
